@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE — WME overlay sign marker rendering (throwaway, not production)</title>
+<!--
+  PROTOTYPE — throwaway, not production code. Pairs with wayfinder ticket #6
+  "Prototype visual overlay rendering and marker fallback in OpenLayers":
+  "How should the visual overlay render sign markers on the WME canvas, and what
+  visual presentation should be used when an SVG icon asset is missing?"
+
+  Three structurally different marker presentations, switchable via `?variant=`:
+    A  Category pin + SVG badge    filled category-colour pin, sign SVG clipped inside
+    B  Bare SVG icons              icon only, no chrome (WME-GIS-Layers style)
+    C  Icon + code chip            icon at all zooms, code chip at zoom >= 17
+
+  Run: double-click this file (no server, no fetch, no deps) or
+       `python3 -m http.server 8000` in this folder.
+  Arrow keys / bottom bar cycle variants. Mock data mirrors the Trimble OGC API
+  property shape (Id, Varustelaji, Varustelaji_koodi, Huomautus) and the #5
+  decision (code + official name + notes panel, category filtering on code prefix).
+-->
+<style>
+  :root { --panel:#1f2328; --panel2:#2b3038; --line:#3a414c; --txt:#e6e9ee; --dim:#9aa4b2; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:13px/1.45 system-ui, "Segoe UI", sans-serif; background:#0f1216; color:var(--txt); height:100vh; display:flex; flex-direction:column; }
+  header { padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; }
+  header b { color:#ffb347; }
+  header span { color:var(--dim); }
+  main { flex:1; display:flex; min-height:0; }
+  #layers { width:230px; background:var(--panel); border-right:1px solid var(--line); padding:10px; overflow:auto; }
+  #layers h4 { margin:4px 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
+  .chk { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; cursor:pointer; }
+  .chk:hover { background:var(--panel2); }
+  .chk input { accent-color:#33a02c; }
+  .layer { margin:2px 0 10px 20px; font-size:12px; color:var(--dim); }
+  .cat { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:6px; cursor:pointer; }
+  .cat:hover { background:var(--panel2); }
+  .cat .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+  .cat .count { margin-left:auto; color:var(--dim); font-size:11px; }
+  #mapwrap { flex:1; position:relative; overflow:hidden; background:#20262e; }
+  #map { position:absolute; inset:0; }
+  /* mock WME-ish basemap: road grid + blocks */
+  #map svg.roads { position:absolute; inset:0; width:100%; height:100%; }
+  .marker { position:absolute; transform:translate(-50%,-100%); cursor:pointer; z-index:5; }
+  .marker.selected { z-index:9; }
+  /* variant A */
+  .vA .pin { width:30px; height:30px; border-radius:50% 50% 50% 4px; transform:rotate(-45deg); border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
+  .vA .pin > * { transform:rotate(45deg); }
+  .vA .pin img, .vA .pin svg { width:20px; height:20px; }
+  .vA .codetext { font-size:8px; font-weight:700; color:#fff; line-height:1; text-align:center; }
+  .vA .codetext small { display:block; font-size:6px; font-weight:400; }
+  /* variant B */
+  .vB .icon { filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
+  /* variant C */
+  .vC .wrap { display:flex; flex-direction:column; align-items:center; gap:2px; transform:translateY(-6px); }
+  .vC .icon { filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
+  .vC .chip { display:flex; align-items:center; gap:5px; background:rgba(20,24,30,.92); border:1px solid var(--line); border-radius:10px; padding:2px 7px; font-size:10px; white-space:nowrap; }
+  .vC .chip .dot { width:7px; height:7px; border-radius:50%; }
+  .vC .placeholder { width:20px; height:20px; border-radius:50%; border:2px dashed #9aa4b2; color:#9aa4b2; display:flex; align-items:center; justify-content:center; font-size:11px; background:rgba(20,24,30,.7); }
+  #sidebar { width:290px; background:var(--panel); border-left:1px solid var(--line); padding:10px; overflow:auto; }
+  #sidebar h4 { margin:4px 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
+  #signinfo .row { display:flex; gap:8px; padding:4px 0; border-bottom:1px solid #262b33; }
+  #signinfo .k { color:var(--dim); width:92px; flex:none; }
+  #signinfo .hint { color:var(--dim); font-size:11px; margin-top:10px; }
+  #status { background:var(--panel2); border-top:1px solid var(--line); padding:6px 12px; color:var(--dim); font-size:12px; display:flex; gap:18px; }
+  #status b { color:var(--txt); }
+  /* prototype switcher bar */
+  #switcher { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); display:flex; align-items:center; gap:10px; background:#0b0e12; border:1px solid #ffb347; border-radius:999px; padding:6px 10px; box-shadow:0 4px 18px rgba(0,0,0,.6); z-index:100; }
+  #switcher button { background:#ffb347; color:#111; border:0; border-radius:999px; width:30px; height:30px; font-size:16px; font-weight:700; cursor:pointer; }
+  #switcher button:hover { background:#ffc966; }
+  #switcher .label { color:#ffb347; font-size:12px; font-weight:600; min-width:190px; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <b>PROTOTYPE</b>
+  <span>WME overlay — sign marker rendering &amp; missing-asset fallback · mock canvas, not the real editor</span>
+  <span style="margin-left:auto">zoom</span>
+  <input id="zoom" type="range" min="14" max="19" step="1" value="16">
+</header>
+<main>
+  <aside id="layers">
+    <h4>Layer switcher (mock)</h4>
+    <label class="chk"><input type="checkbox" id="layerToggle" checked> Turku traffic signs</label>
+    <div class="layer">read-only overlay · SDK marker layer</div>
+    <h4>Sign categories</h4>
+    <div id="cats"></div>
+  </aside>
+  <div id="mapwrap">
+    <div id="map">
+      <svg class="roads" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <rect width="100" height="100" fill="#20262e"/>
+        <!-- blocks -->
+        <g fill="#262d36">
+          <rect x="2" y="2" width="26" height="20" rx="2"/><rect x="34" y="2" width="20" height="20" rx="2"/>
+          <rect x="60" y="2" width="38" height="20" rx="2"/><rect x="2" y="30" width="26" height="34" rx="2"/>
+          <rect x="34" y="30" width="20" height="34" rx="2"/><rect x="60" y="30" width="38" height="34" rx="2"/>
+          <rect x="2" y="72" width="46" height="26" rx="2"/><rect x="54" y="72" width="44" height="26" rx="2"/>
+        </g>
+        <!-- roads -->
+        <g stroke="#3c4550" stroke-width="2.2">
+          <line x1="0" y1="26" x2="100" y2="26"/><line x1="0" y1="68" x2="100" y2="68"/>
+          <line x1="31" y1="0" x2="31" y2="100"/><line x1="57" y1="0" x2="57" y2="100"/>
+        </g>
+        <g stroke="#4a5462" stroke-width="3.4">
+          <line x1="0" y1="47" x2="100" y2="47"/><line x1="44" y1="0" x2="44" y2="100"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+  <aside id="sidebar">
+    <h4>Sign details (mock SDK sidebar tab)</h4>
+    <div id="signinfo"><div class="hint">Click a marker to inspect a sign.<br>Panel shows code + official name + notes (note row hidden when null) per ticket #5.</div></div>
+  </aside>
+</main>
+<div id="status">
+  <span>variant <b id="st-variant">A</b></span>
+  <span>zoom <b id="st-zoom">16</b></span>
+  <span>markers <b id="st-rendered">0</b></span>
+  <span>hidden (no icon asset) <b id="st-hidden">0</b></span>
+</div>
+<div id="switcher">
+  <button id="prev" title="previous variant (←)">←</button>
+  <div class="label" id="sw-label"></div>
+  <button id="next" title="next variant (→)">→</button>
+</div>
+<script>
+"use strict";
+/* ---------- mock data: Trimble OGC API shape (Id, Varustelaji, Varustelaji_koodi, Huomautus) ---------- */
+const CATS = {
+  speed:    { label: "Speed limits", color: "#c0392b" },
+  priority: { label: "Priority",     color: "#e67e22" },
+  parking:  { label: "Parking",      color: "#2980b9" },
+  warning:  { label: "Warning",      color: "#d4a902" },
+  other:    { label: "Other",        color: "#7f8c8d" },
+};
+function svg(inner) { return "data:image/svg+xml;utf8," + encodeURIComponent(inner); }
+const ICONS = {
+  speed40: svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#fff" stroke="#c00" stroke-width="3"/><text x="12" y="17" font-size="11" font-family="Arial" font-weight="bold" text-anchor="middle">40</text></svg>`),
+  speed50: svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#fff" stroke="#c00" stroke-width="3"/><text x="12" y="17" font-size="11" font-family="Arial" font-weight="bold" text-anchor="middle">50</text></svg>`),
+  yield:   svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3 22 20H2Z" fill="#fff" stroke="#c00" stroke-width="3" stroke-linejoin="round"/></svg>`),
+  nopark:  svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#0b60c9" stroke="#c00" stroke-width="3"/><line x1="5" y1="19" x2="19" y2="5" stroke="#c00" stroke-width="3"/></svg>`),
+  curve:   svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3 22 20H2Z" fill="#f5c518" stroke="#c00" stroke-width="3" stroke-linejoin="round"/><path d="M12 8v8" stroke="#000" stroke-width="0"/></svg>`),
+  bus:     svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="13" rx="2" fill="#fff" stroke="#0b60c9" stroke-width="2"/><rect x="7" y="7" width="10" height="5" fill="#9fd0ff"/><circle cx="8" cy="19" r="2" fill="#222"/><circle cx="16" cy="19" r="2" fill="#222"/></svg>`),
+};
+const SIGNS = [
+  { Id: 1042, Varustelaji_koodi: "362", Varustelaji: "Nopeusrajoitus 40", Huomautus: "Voimaan 1.6. alkaen", cat: "speed",    icon: ICONS.speed40, x: 18, y: 22 },
+  { Id: 1043, Varustelaji_koodi: "364", Varustelaji: "Nopeusrajoitus 50", Huomautus: null,            cat: "speed",    icon: ICONS.speed50, x: 40, y: 40 },
+  { Id: 1051, Varustelaji_koodi: "311", Varustelaji: "Etuajo-oikeus",      Huomautus: null,            cat: "priority", icon: ICONS.yield,   x: 65, y: 18 },
+  { Id: 1067, Varustelaji_koodi: "381", Varustelaji: "Pysäköintikielto", Huomautus: "Arkipäivinä 8–17", cat: "parking",  icon: ICONS.nopark,  x: 78, y: 60 },
+  { Id: 1078, Varustelaji_koodi: "391", Varustelaji: "Vaarallinen kaarre", Huomautus: null,            cat: "warning",  icon: ICONS.curve,   x: 30, y: 78 },
+  { Id: 1102, Varustelaji_koodi: "632", Varustelaji: "Joukkoliikenne pysäkki", Huomautus: null,       cat: "other",    icon: ICONS.bus,     x: 52, y: 55 },
+  { Id: 1109, Varustelaji_koodi: "715", Varustelaji: "Moottoriliikenteen alku", Huomautus: null,      cat: "other",    icon: null,           x: 84, y: 35 }, // missing asset
+  { Id: 1113, Varustelaji_koodi: "811", Varustelaji: "Tunneli",            Huomautus: "Jäätymisvaara", cat: "warning",  icon: null,           x: 12, y: 62 }, // missing asset
+  { Id: 1121, Varustelaji_koodi: "365", Varustelaji: "Nopeusrajoitus 70", Huomautus: null,            cat: "speed",    icon: svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#fff" stroke="#c00" stroke-width="3"/><text x="12" y="17" font-size="11" font-family="Arial" font-weight="bold" text-anchor="middle">70</text></svg>`), x: 90, y: 82 },
+  { Id: 1130, Varustelaji_koodi: "376", Varustelaji: "Jalankulku-alue",   Huomautus: null,             cat: "other",    icon: svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="#fff" stroke="#0b60c9" stroke-width="2"/><text x="12" y="16" font-size="9" font-family="Arial" text-anchor="middle">K329</text></svg>`), x: 8, y: 8 },
+];
+const VARIANTS = [
+  { key: "A", name: "Category pin + SVG badge",  desc: "filled category-colour pin, sign SVG clipped inside" },
+  { key: "B", name: "Bare SVG icons",           desc: "icon only, no chrome (WME-GIS-Layers style)" },
+  { key: "C", name: "Icon + code chip",         desc: "icon at all zooms, code pill at zoom ≥ 17" },
+];
+
+/* ---------- state ---------- */
+const state = {
+  variant: new URLSearchParams(location.search).get("variant")?.toUpperCase() || "A",
+  zoom: 16,
+  layerOn: true,
+  catsOff: new Set(),   // categories hidden by filter
+  selected: null,
+};
+let rendered = 0, hidden = 0, markerEls = [];
+const $map = document.getElementById("map");
+const $info = document.getElementById("signinfo");
+
+/* ---------- variant renderers: one element per sign ---------- */
+function renderMarkerA(s) {
+  const cat = CATS[s.cat];
+  const pin = document.createElement("div");
+  pin.className = "pin";
+  pin.style.background = cat.color;
+  if (s.icon) {
+    const img = document.createElement("img");
+    img.src = s.icon; img.alt = "";
+    pin.appendChild(img);
+  } else {
+    const t = document.createElement("div");
+    t.className = "codetext";
+    t.innerHTML = `${s.Varustelaji_koodi}<small>no icon</small>`;
+    pin.appendChild(t);
+  }
+  return pin;
+}
+function renderMarkerB(s) {
+  if (!s.icon) return null; // bare icons: missing asset → marker not rendered at all
+  const img = document.createElement("img");
+  img.className = "icon";
+  const size = 16 + (state.zoom - 14) * 5;
+  img.style.width = img.style.height = size + "px";
+  img.src = s.icon; img.alt = "";
+  return img;
+}
+function renderMarkerC(s) {
+  const cat = CATS[s.cat];
+  const wrap = document.createElement("div");
+  wrap.className = "wrap";
+  if (s.icon) {
+    const img = document.createElement("img");
+    img.className = "icon"; img.style.width = img.style.height = "22px";
+    img.src = s.icon; img.alt = "";
+    wrap.appendChild(img);
+  } else {
+    const ph = document.createElement("div");
+    ph.className = "placeholder"; ph.textContent = "?"; ph.title = "no icon asset";
+    wrap.appendChild(ph);
+  }
+  if (state.zoom >= 17) {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.innerHTML = `<span class="dot" style="background:${cat.color}"></span>${s.Varustelaji_koodi}`;
+    wrap.appendChild(chip);
+  }
+  return wrap;
+}
+const RENDERERS = { A: renderMarkerA, B: renderMarkerB, C: renderMarkerC };
+
+/* ---------- paint ---------- */
+function paint() {
+  markerEls.forEach(el => el.remove());
+  markerEls = []; rendered = 0; hidden = 0;
+  const renderer = RENDERERS[state.variant];
+  for (const s of SIGNS) {
+    const el = document.createElement("div");
+    el.className = "marker v" + state.variant;
+    el.style.left = s.x + "%"; el.style.top = s.y + "%";
+    el.dataset.id = s.Id;
+    const child = state.layerOn && !state.catsOff.has(s.cat)
+      ? renderer(s)
+      : (renderer(s), null); // still render, then hide via display
+    if (!child) { if (!s.icon) hidden++; else rendered++; }
+    el.appendChild(child || document.createElement("span"));
+    if (state.layerOn && state.catsOff.has(s.cat)) el.style.display = "none";
+    el.addEventListener("click", (e) => { e.stopPropagation(); select(s.Id); });
+    if (state.selected === s.Id) el.classList.add("selected");
+    $map.appendChild(el);
+    markerEls.push(el);
+  }
+  // hidden counts: B hides missing-asset signs entirely; C keeps placeholder pins
+  hidden = state.variant === "B" ? SIGNS.filter(s => !s.icon).length : 0;
+  rendered = SIGNS.length - hidden - state.catsOff.size > 0 ? SIGNS.length - hidden - SIGNS.filter(s => state.catsOff.has(s.cat)).length : 0;
+  document.getElementById("st-variant").textContent = state.variant;
+  document.getElementById("st-zoom").textContent = state.zoom;
+  document.getElementById("st-rendered").textContent = state.layerOn ? rendered : 0;
+  document.getElementById("st-hidden").textContent = state.layerOn && state.variant !== "C" ? hidden : 0;
+  document.getElementById("sw-label").textContent = `${state.variant} — ${VARIANTS.find(v => v.key === state.variant).name}`;
+}
+
+function select(id) {
+  state.selected = id;
+  const s = SIGNS.find(x => x.Id === id);
+  $info.innerHTML = `
+    <div class="row"><span class="k">sign code</span><span><b>${s.Varustelaji_koodi}</b></span></div>
+    <div class="row"><span class="k">official name</span><span>${s.Varustelaji}</span></div>
+    <div class="row"><span class="k">category</span><span>${CATS[s.cat].label}</span></div>
+    ${s.Huomautus ? `<div class="row"><span class="k">notes</span><span>${s.Huomautus}</span></div>` : ""}
+    ${!s.icon ? `<div class="row"><span class="k">icon asset</span><span style="color:#ffb347">missing — fallback applies</span></div>` : ""}
+    <div class="hint">Row for notes hidden when null (ticket #5 decision). Mock of SDK sidebar tab.</div>`;
+  paint();
+}
+
+/* ---------- layer switcher + category filter ---------- */
+document.getElementById("layerToggle").addEventListener("change", e => { state.layerOn = e.target.checked; paint(); });
+const $cats = document.getElementById("cats");
+for (const [key, cat] of Object.entries(CATS)) {
+  const n = SIGNS.filter(s => s.cat === key).length;
+  const row = document.createElement("label");
+  row.className = "cat";
+  row.innerHTML = `<input type="checkbox" checked><span class="dot" style="background:${cat.color}"></span>${cat.label}<span class="count">${n}</span>`;
+  row.querySelector("input").addEventListener("change", e => {
+    e.target.checked ? state.catsOff.delete(key) : state.catsOff.add(key);
+    paint();
+  });
+  $cats.appendChild(row);
+}
+
+/* ---------- zoom ---------- */
+document.getElementById("zoom").addEventListener("input", e => { state.zoom = +e.target.value; paint(); });
+
+/* ---------- prototype switcher ---------- */
+function go(v) {
+  state.variant = v;
+  const u = new URL(location.href); u.searchParams.set("variant", v);
+  history.replaceState(null, "", u);
+  paint();
+}
+document.getElementById("prev").addEventListener("click", () => go(VARIANTS[(VARIANTS.findIndex(v => v.key === state.variant) + 2) % 3].key));
+document.getElementById("next").addEventListener("click", () => go(VARIANTS[(VARIANTS.findIndex(v => v.key === state.variant) + 1) % 3].key));
+document.addEventListener("keydown", e => {
+  const t = e.target;
+  if (t.matches("input, textarea, [contenteditable]")) return;
+  if (e.key === "ArrowLeft") go(VARIANTS[(VARIANTS.findIndex(v => v.key === state.variant) + 2) % 3].key);
+  if (e.key === "ArrowRight") go(VARIANTS[(VARIANTS.findIndex(v => v.key === state.variant) + 1) % 3].key);
+});
+$map.addEventListener("click", () => { state.selected = null; $info.innerHTML = `<div class="hint">Click a marker to inspect a sign.</div>`; paint(); });
+
+paint();
+</script>
+</body>
+</html>
