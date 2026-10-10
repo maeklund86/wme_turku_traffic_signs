@@ -10,7 +10,7 @@
   visual presentation should be used when an SVG icon asset is missing?"
 
   Three structurally different marker presentations, switchable via `?variant=`:
-    A  Sign on thin post              bare official sign icon on a thin post (no plate/background)
+    A  Sign on thin post              bare official sign icon on a thin post (no plate/background); missing asset = bordered code plate
     B  Bare SVG icons              icon only, no chrome (WME-GIS-Layers style)
     C  Icon + code chip            icon at all zooms, code chip at zoom >= 17
 
@@ -46,7 +46,10 @@
   .marker.selected { z-index:9; }
   /* variant A — Finnish sign: bare official icon on a thin post, no plate/background */
   .vA .icon { width:22px; height:22px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
-  .vA .codelabel { font-size:9px; font-weight:700; color:#1c1f24; line-height:1; paint-order:stroke; -webkit-text-stroke:3px #fff; }
+  /* fallback plate (missing asset only): bordered square with sign code */
+  .vA .fallbackplate { width:24px; height:24px; border-radius:3px; background:#fdfdf8; border:1.5px solid #1c1f24; box-shadow:0 1px 3px rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; }
+  .vA .fallbackplate .codetext { font-size:8px; font-weight:700; color:#1c1f24; line-height:1.05; text-align:center; }
+  .vA .fallbackplate .codetext small { display:block; font-size:5.5px; font-weight:400; color:#555; }
   .vA .post { width:2px; height:11px; background:#8a949e; margin:0 auto; }
   /* variant B */
   .vB .icon { filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
@@ -155,7 +158,7 @@ const SIGNS = [
   { Id: 1130, Varustelaji_koodi: "376", Varustelaji: "Jalankulku-alue",   Huomautus: null,             cat: "other",    icon: svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="#fff" stroke="#0b60c9" stroke-width="2"/><text x="12" y="16" font-size="9" font-family="Arial" text-anchor="middle">K329</text></svg>`), x: 8, y: 8 },
 ];
 const VARIANTS = [
-  { key: "A", name: "Sign on thin post",           desc: "bare official icon on a thin post; missing asset = outlined code label" },
+  { key: "A", name: "Sign on thin post",           desc: "bare official icon on a thin post; missing asset = bordered code plate" },
   { key: "B", name: "Bare SVG icons",           desc: "icon only, no chrome (WME-GIS-Layers style)" },
   { key: "C", name: "Icon + code chip",         desc: "icon at all zooms, code pill at zoom ≥ 17" },
 ];
@@ -183,11 +186,14 @@ function renderMarkerA(s) {
     img.src = s.icon; img.alt = "";
     wrap.appendChild(img);
   } else {
-    // missing asset: no plate, no fill — just the sign code as an outlined label above the post
+    // missing asset: bordered fallback plate with the sign code (icons stay bare)
+    const plate = document.createElement("div");
+    plate.className = "fallbackplate";
     const t = document.createElement("div");
-    t.className = "codelabel";
-    t.textContent = s.Varustelaji_koodi;
-    wrap.appendChild(t);
+    t.className = "codetext";
+    t.innerHTML = `${s.Varustelaji_koodi}<small>no icon</small>`;
+    plate.appendChild(t);
+    wrap.appendChild(plate);
   }
   const post = document.createElement("div");
   post.className = "post";
