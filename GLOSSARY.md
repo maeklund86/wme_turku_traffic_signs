@@ -12,6 +12,10 @@ _Avoid_: Road sign, marker, placard
 A toggleable map layer rendered within WME that displays sign markers and attribute popups for editor reference.
 _Avoid_: Sign bot, auto-editor, patcher
 
+**Sign Panel**:
+The script's own tab in the WME sidebar, holding the visibility control, sign category filters, the viewport-driven sign list, sign detail and attribution.
+_Avoid_: Overlay, side panel, sign bot
+
 **Sign Category**:
 A grouping of traffic signs sharing a common regulatory function (e.g., speed limits, priority, parking).
 _Avoid_: Tag, folder, bucket
