@@ -10,7 +10,7 @@
   visual presentation should be used when an SVG icon asset is missing?"
 
   Three structurally different marker presentations, switchable via `?variant=`:
-    A  Category pin + SVG badge    filled category-colour pin, sign SVG clipped inside
+    A  Sign plate on thin post        neutral sign plate on a thin post, official sign SVG inside
     B  Bare SVG icons              icon only, no chrome (WME-GIS-Layers style)
     C  Icon + code chip            icon at all zooms, code chip at zoom >= 17
 
@@ -44,12 +44,12 @@
   #map svg.roads { position:absolute; inset:0; width:100%; height:100%; }
   .marker { position:absolute; transform:translate(-50%,-100%); cursor:pointer; z-index:5; }
   .marker.selected { z-index:9; }
-  /* variant A */
-  .vA .pin { width:30px; height:30px; border-radius:50% 50% 50% 4px; transform:rotate(-45deg); border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
-  .vA .pin > * { transform:rotate(45deg); }
-  .vA .pin img, .vA .pin svg { width:20px; height:20px; }
-  .vA .codetext { font-size:8px; font-weight:700; color:#fff; line-height:1; text-align:center; }
-  .vA .codetext small { display:block; font-size:6px; font-weight:400; }
+  /* variant A — sign plate on a thin post, neutral (no category colour) */
+  .vA .post { width:2px; height:11px; background:#8a949e; margin:0 auto; }
+  .vA .plate { width:24px; min-height:24px; border-radius:3px; background:#fdfdf8; border:1.5px solid #1c1f24; box-shadow:0 1px 3px rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:1px; }
+  .vA .plate img { width:18px; height:18px; }
+  .vA .codetext { font-size:8px; font-weight:700; color:#1c1f24; line-height:1.05; text-align:center; }
+  .vA .codetext small { display:block; font-size:5.5px; font-weight:400; color:#555; }
   /* variant B */
   .vB .icon { filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
   /* variant C */
@@ -157,7 +157,7 @@ const SIGNS = [
   { Id: 1130, Varustelaji_koodi: "376", Varustelaji: "Jalankulku-alue",   Huomautus: null,             cat: "other",    icon: svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="#fff" stroke="#0b60c9" stroke-width="2"/><text x="12" y="16" font-size="9" font-family="Arial" text-anchor="middle">K329</text></svg>`), x: 8, y: 8 },
 ];
 const VARIANTS = [
-  { key: "A", name: "Category pin + SVG badge",  desc: "filled category-colour pin, sign SVG clipped inside" },
+  { key: "A", name: "Sign plate on thin post",  desc: "neutral sign plate on a thin post, official SVG inside" },
   { key: "B", name: "Bare SVG icons",           desc: "icon only, no chrome (WME-GIS-Layers style)" },
   { key: "C", name: "Icon + code chip",         desc: "icon at all zooms, code pill at zoom ≥ 17" },
 ];
@@ -176,21 +176,30 @@ const $info = document.getElementById("signinfo");
 
 /* ---------- variant renderers: one element per sign ---------- */
 function renderMarkerA(s) {
-  const cat = CATS[s.cat];
-  const pin = document.createElement("div");
-  pin.className = "pin";
-  pin.style.background = cat.color;
+  // neutral: sign plate on a thin post; no category colour
+  const wrap = document.createElement("div");
+  wrap.className = "wrapA";
   if (s.icon) {
+    const plate = document.createElement("div");
+    plate.className = "plate";
     const img = document.createElement("img");
     img.src = s.icon; img.alt = "";
-    pin.appendChild(img);
+    plate.appendChild(img);
+    wrap.appendChild(plate);
   } else {
+    // missing asset: plate shows the sign code so the sign is still identifiable
+    const plate = document.createElement("div");
+    plate.className = "plate";
     const t = document.createElement("div");
     t.className = "codetext";
     t.innerHTML = `${s.Varustelaji_koodi}<small>no icon</small>`;
-    pin.appendChild(t);
+    plate.appendChild(t);
+    wrap.appendChild(plate);
   }
-  return pin;
+  const post = document.createElement("div");
+  post.className = "post";
+  wrap.appendChild(post);
+  return wrap;
 }
 function renderMarkerB(s) {
   if (!s.icon) return null; // bare icons: missing asset → marker not rendered at all
