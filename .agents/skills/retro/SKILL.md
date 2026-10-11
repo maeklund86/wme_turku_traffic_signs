@@ -24,6 +24,16 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 
 4. Present these candidates to the user, in order of severity.
 
+## Practical tip: dump session tool trace
+
+If the user wants a quick trace of the session's tool calls, run:
+
+```bash
+python3 scripts/session-trace.py [session-id]
+```
+
+Session id defaults to `$OPENCODE_SESSION_ID`. Use `--json` for machine parsing.
+
 ## Reference
 
 ### Implementation vs Review
