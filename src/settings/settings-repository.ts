@@ -1,4 +1,5 @@
 import { SIGN_PANEL_SETTINGS_KEY } from "../constants";
+import { isPlainObject } from "../json";
 import type { KeyValueStore } from "../storage/key-value-store";
 
 export interface SignPanelSettings {
@@ -58,8 +59,4 @@ function parseCategoryFilter(value: unknown): readonly string[] | null {
     return DEFAULT_SIGN_PANEL_SETTINGS.categoryFilter;
   }
   return value;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

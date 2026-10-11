@@ -1,6 +1,9 @@
 import type { WmeSDK } from "wme-sdk-typings";
 
 import { SCRIPT_ID, SCRIPT_NAME } from "./constants";
+import type { DatasetStore } from "./data/dataset-store";
+import type { SignDatasetRecord } from "./data/sign-dataset-record";
+import { openSignDatasetSource } from "./data/sign-dataset-service";
 import { SettingsRepository } from "./settings/settings-repository";
 import { openSignPanelTab } from "./sign-panel/tab";
 import type { KeyValueStore } from "./storage/key-value-store";
@@ -16,6 +19,16 @@ export interface BootstrapDeps {
   /** The WME page document — the sidebar tab host lives in it, not in the sandbox. */
   document: Document;
   storage: KeyValueStore;
+  /** The whole-Turku sign dataset: Client Cache persistence plus ingestion. */
+  signData: SignDataDeps;
+}
+
+/** The seams behind sign-data loading: where datasets persist and how they arrive. */
+export interface SignDataDeps {
+  /** Client Cache persistence for the whole-Turku sign dataset. */
+  datasetStore: DatasetStore;
+  /** Ingests the whole City of Turku registry through the Trimble OGC API. */
+  fetchDataset: () => Promise<SignDatasetRecord>;
 }
 
 /**
@@ -41,12 +54,23 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
     document: deps.document,
     settingsRepository,
   });
+  // The Client Cache is opened (and older schema versions stranded out) as
+  // early as possible; the dataset itself loads on wme-ready.
+  const signDataset = await openSignDatasetSource({
+    store: deps.signData.datasetStore,
+    fetchDataset: deps.signData.fetchDataset,
+  });
 
   sdk.Events.on({
     eventName: "wme-ready",
     eventHandler: () => {
       void signPanel.refresh().catch((error: unknown) => {
         console.error("[turku-signs] Failed to re-apply Sign Panel state on wme-ready", error);
+      });
+      // Cache-first and non-blocking: a fresh cache renders with zero
+      // requests; a stale one renders now and swaps in the background.
+      void signDataset.load().catch((error: unknown) => {
+        console.error("[turku-signs] Failed to load sign data on wme-ready", error);
       });
     },
   });

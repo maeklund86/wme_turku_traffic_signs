@@ -12,4 +12,7 @@
 // @grant        GM.setValue
 // @grant        GM.getValue
 // @grant        GM.deleteValue
+// @grant        GM.xmlHttpRequest
+// @connect      opaskartta.turku.fi
+// @connect      turku.asiointi.fi
 // ==/UserScript==
