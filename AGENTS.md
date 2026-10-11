@@ -17,3 +17,7 @@ Repo skills live in `.agents/skills/<name>/SKILL.md` and are **not** registered 
 ### Domain docs
 
 Single-context (`GLOSSARY.md` + `docs/adr/` at the repo root). See `docs/agents/domain.md`.
+
+### Guardrails
+
+No CI. Checks live in `scripts/pre-commit` (typecheck + vitest + build), wired via **local** git config — run once per clone: `git config core.hooksPath scripts`. Not wired? Run `npm run check` before committing.

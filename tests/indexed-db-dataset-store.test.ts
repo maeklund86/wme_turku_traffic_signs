@@ -1,3 +1,6 @@
+// IndexedDB pitfalls under vitest+jsdom (cursor-delete hangs; an open
+// connection blocks deleteDatabase and queues later opens): read
+// support/INDEXEDDB-NOTES.md before changing how this test seeds or scans.
 import "fake-indexeddb/auto";
 
 import { beforeEach, describe, expect, it } from "vitest";
