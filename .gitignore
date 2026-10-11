@@ -1,3 +1,8 @@
 # Python build artefacts (scripts/ is the only executable code in this repo)
 __pycache__/
 *.pyc
+
+# Node toolchain (issue #14): dependencies, built userscript. Executable code
+# now lives in src/ (userscript) as well as scripts/ (Python).
+node_modules/
+dist/

@@ -1,0 +1,22 @@
+{
+  "name": "wme-turku-traffic-signs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WME userscript: overlay official City of Turku traffic signs (private use, not for distribution).",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --format=iife --target=es2022 --banner:js=\"$(cat userscript.header.js)\" --outfile=dist/wme-turku-traffic-signs.user.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/tampermonkey": "^5.5.0",
+    "esbuild": "^0.28.2",
+    "jsdom": "^27.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3",
+    "wme-sdk-typings": "https://web-assets.waze.com/wme_sdk_docs/production/v2.370-3-gaa6183241e/wme-sdk-typings.tgz"
+  }
+}

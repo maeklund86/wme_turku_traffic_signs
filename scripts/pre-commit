@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Repo guardrail. This repo has no CI, no package.json, no linter - the only
-# executable artefact is the Python under scripts/ (session-trace.py, used by
-# /retro). Compile-check it so a broken script is never committed.
+# Repo guardrail. This repo has no CI. Compile-check the Python under scripts/
+# (session-trace.py, used by /retro) so a broken script is never committed.
+# Since issue #14 the repo also ships the userscript sources with a JS toolchain
+# (typecheck + vitest); run that too when dependencies are installed.
 set -euo pipefail
 python3 -m compileall -q scripts
+if [ -d node_modules ]; then
+  npm run --silent check
+  npm run --silent build
+fi
