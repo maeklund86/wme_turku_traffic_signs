@@ -5,6 +5,12 @@
 # (typecheck + vitest); run that too when dependencies are installed.
 set -euo pipefail
 python3 -m compileall -q scripts
+# Node scripts under scripts/ (e.g. the sign-icon catalogue generator) get the
+# same syntax-only bar: compileall covers Python, --check covers JavaScript.
+for script in scripts/*.mjs; do
+  [ -e "$script" ] || continue
+  node --check "$script"
+done
 if [ -d node_modules ]; then
   npm run --silent check
   npm run --silent build

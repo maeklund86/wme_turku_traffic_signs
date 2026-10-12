@@ -63,6 +63,7 @@ Per [#2](https://github.com/maeklund86/wme_turku_traffic_signs/issues/2):
 - Query: `f=application/geo+json`, `bbox=minLon,minLat,maxLon,maxLat` (WGS84 / CRS84 decimal degrees) covering the **whole City of Turku extent**, `limit=10000` (max), `offset` pagination following `rel="next"` links until exhausted.
 - Whole-dataset fetch, not viewport tiling: ~36,281 features ≈ 4 paginated requests ≈ 13.5 MB raw GeoJSON.
 - Server-side property filters are ignored — all filtering is client-side.
+- **Empty pages:** the endpoint intermittently returns an entirely empty page (`HTTP 200`, `numberReturned: 0`, no `rel="next"` link) under load, and its default page size is 50 when no `limit` is sent. Treat a fully paginated **empty** result as inconclusive — retry — rather than as a complete 0-sign dataset, so a transient empty page cannot be ingested as the whole registry. Always send `limit=10000` explicitly.
 - Geometry: GeoJSON Point `[longitude, latitude]`; feeds the SDK directly with **no reprojection** (SDK speaks WGS84).
 
 ### 4.3 Client Cache (IndexedDB)
@@ -160,5 +161,6 @@ Testable; verify in a WME test environment with the script installed via Tamperm
 - **Do not carry forward:** `LayerSwitcher.addLayerCheckbox` as the visibility mechanism (superseded — see #12/#13).
 - **Prototype reference (throwaway, never merged):** branch `prototype/wme-overlay-rendering`, `prototypes/wme-overlay-rendering/index.html` — validated marker presentation and fallback only; reimplement properly against this spec.
 - **Research archives (never merged):** `research/trimble-ogc-api-schema`, `research/finnish-traffic-sign-svgs`, `research/wme-openlayers-vector-integration`, `research/waze-source-accreditation`, `research/wme-sdk-layer-visibility`.
+- **Rendering reference:** [`docs/reference/wme-overlay-rendering.md`](wme-overlay-rendering.md) — the OL2/SDK rendering facts `FeatureStyle` leans on (graphic anchoring, offset direction, the opacity fallback, cursor) plus the typings traps. None of it is in this spec or in the vendored typings, and marker work keeps re-deriving it.
 - **Attribution obligations:** icons CC0 (Väylävirasto, attribution optional but recorded); dataset CC BY 4.0 (City of Turku — the footer is the attribution mechanism).
 - **Acceptance:** criteria in §6 are the handoff checklist; owner's sign-off on this document releases implementation.

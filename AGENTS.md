@@ -6,7 +6,7 @@ GitHub Issues (`maeklund86/wme_turku_traffic_signs`). See `docs/agents/issue-tra
 
 ### Triage labels
 
-Default five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+Issue-triage roles and their transitions. See `docs/agents/triage-labels.md`.
 
 ### Skills
 
@@ -17,6 +17,14 @@ Repo skills live in `.agents/skills/<name>/SKILL.md` and are **not** registered 
 ### Domain docs
 
 Single-context (`GLOSSARY.md` + `docs/adr/` at the repo root). See `docs/agents/domain.md`.
+
+### Research archives
+
+Answered design questions live on `research/*` branches (`git branch -a`), never merged — read one by SHA: `git show research/<name>:docs/research/<name>.md`. Listed in `docs/spec/mvp-specification.md` §7.
+
+### Rendering reference
+
+WME SDK + OL2 rendering facts the Visual Overlay depends on — graphic anchoring, offset direction, opacity fallback, cursor, and the typings traps. See `docs/reference/wme-overlay-rendering.md`.
 
 ### Guardrails
 
