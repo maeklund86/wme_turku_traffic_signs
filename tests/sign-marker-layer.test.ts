@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { SdkFeature } from "wme-sdk-typings";
+import type { SdkFeature, WmeSDK } from "wme-sdk-typings";
 
 import { SIGN_LAYER_NAME } from "../src/constants";
 import type { TrafficSign } from "../src/data/traffic-sign";
@@ -14,7 +14,7 @@ import {
   SIGN_MARKER_STYLE_RULES,
 } from "../src/visual-overlay/marker-style";
 import { openSignMarkerLayer } from "../src/visual-overlay/sign-marker-layer";
-import { createFakeMapSurface } from "./support/fake-wme-sdk";
+import { createFakeEventBus, createFakeMapSurface } from "./support/fake-wme-sdk";
 import { sign } from "./support/turku-sign";
 
 const LAYER = SIGN_LAYER_NAME;
@@ -22,7 +22,9 @@ const LAYER = SIGN_LAYER_NAME;
 const [plateRule, iconRule] = SIGN_MARKER_STYLE_RULES;
 
 function createHost() {
-  return createFakeMapSurface();
+  const mapSurface = createFakeMapSurface();
+  const events = createFakeEventBus();
+  return { ...mapSurface, Events: events as unknown as WmeSDK["Events"], events };
 }
 
 function features(host: ReturnType<typeof createHost>): SdkFeature[] {
@@ -114,6 +116,28 @@ describe("Visual Overlay marker layer (AC-9)", () => {
     expect(host.addLayer).toHaveBeenCalledTimes(1);
     expect(host.removeAllFeaturesFromLayer).toHaveBeenCalledTimes(2);
     expect(features(host).map((feature) => feature.id)).toEqual(["1", "2"]);
+  });
+
+  it("starts tracking the layer's hover events, so the pointer can move", () => {
+    const host = createHost();
+    openSignMarkerLayer({ sdk: host }).setVisible(true);
+
+    expect(host.events.trackLayerEvents).toHaveBeenCalledTimes(1);
+    expect(host.events.trackLayerEvents).toHaveBeenCalledWith({ layerName: LAYER });
+  });
+
+  it("drops the pointer when the layer is hidden, so it can't strand on empty map", () => {
+    const host = createHost();
+    const mapElement = host.getMapViewportElement();
+    mapElement.style.cursor = "crosshair";
+    const layer = openSignMarkerLayer({ sdk: host });
+
+    layer.setVisible(true);
+    host.events.emit("wme-layer-feature-mouse-enter", { layerName: LAYER, featureId: "1" });
+    expect(mapElement.style.cursor).toBe("pointer");
+
+    layer.setVisible(false);
+    expect(mapElement.style.cursor).toBe("crosshair");
   });
 });
 

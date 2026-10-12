@@ -1,4 +1,4 @@
-import type { SdkFeature, SdkFeatureStyleContext, SdkFeatureStyleRule } from "wme-sdk-typings";
+import type { SdkFeature, SdkFeatureStyleContext, SdkFeatureStyleRule, WmeSDK } from "wme-sdk-typings";
 
 import type { TrafficSign } from "../data/traffic-sign";
 import { SIGN_LAYER_NAME } from "../constants";
@@ -9,9 +9,10 @@ import {
   SIGN_MARKER_STYLE_CONTEXT,
   SIGN_MARKER_STYLE_RULES,
 } from "./marker-style";
+import { openMarkerPointer } from "./marker-pointer";
 
 /** The `sdk.Map` calls the Visual Overlay makes (spec §4.4, §7). */
-export interface SignMarkerLayerHost {
+export interface SignMarkerLayerMap {
   addLayer(args: {
     layerName: string;
     styleContext?: SdkFeatureStyleContext;
@@ -21,11 +22,17 @@ export interface SignMarkerLayerHost {
   addFeatureToLayer(args: { layerName: string; feature: SdkFeature }): void;
   removeAllFeaturesFromLayer(args: { layerName: string }): void;
   setLayerVisibility(args: { layerName: string; visibility: boolean }): void;
+  /** The map element the marker pointer puts its cursor on (AC-10). */
+  getMapViewportElement(): HTMLElement;
 }
 
 export interface SignMarkerLayerDeps {
-  /** The WME SDK; only its `Map` surface is ever touched. */
-  sdk: { Map: SignMarkerLayerHost };
+  /**
+   * The WME SDK; only its `Map` and `Events` surfaces are ever touched.
+   * `Events` is the SDK's own type because its `on` is generic over the event
+   * name and cannot be mirrored structurally.
+   */
+  sdk: { Map: SignMarkerLayerMap; Events: WmeSDK["Events"] };
 }
 
 /**
@@ -43,6 +50,10 @@ export interface SignMarkerLayer {
 
 export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer {
   const map = deps.sdk.Map;
+  const markerPointer = openMarkerPointer({
+    Events: deps.sdk.Events,
+    mapViewportElement: () => deps.sdk.Map.getMapViewportElement(),
+  });
   let layerCreated = false;
 
   return { setVisible, render };
@@ -60,6 +71,7 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
       zIndexing: true,
     });
     layerCreated = true;
+    markerPointer.start(SIGN_LAYER_NAME);
   }
 
   function setVisible(visible: boolean): void {
@@ -67,6 +79,9 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     // Set explicitly rather than trusting the default: whether a freshly added
     // layer starts visible is not documented (spec §4.4).
     map.setLayerVisibility({ layerName: SIGN_LAYER_NAME, visibility: visible });
+    // A marker the pointer was over a moment ago is gone; without this the
+    // cursor stays a pointer over empty map (AC-10).
+    if (!visible) markerPointer.clear();
   }
 
   function render(signs: readonly TrafficSign[]): void {

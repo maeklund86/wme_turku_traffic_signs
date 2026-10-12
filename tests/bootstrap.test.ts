@@ -323,4 +323,27 @@ describe("visual overlay wiring", () => {
     // The switcher entry is opt-in; the overlay simply never asks for one.
     expect(fake.layerSwitcher.addLayerCheckbox).not.toHaveBeenCalled();
   });
+
+  it("puts a pointer over a marker and restores it after (AC-10)", async () => {
+    const { fake, resolveSdkInitialized, started } = bootWithSigns([sign("1", 22.2, 60.4)]);
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+
+    const mapElement = fake.map.getMapViewportElement();
+    mapElement.style.cursor = "crosshair";
+
+    fake.emitFeatureHover("wme-layer-feature-mouse-enter", {
+      layerName: SIGN_LAYER_NAME,
+      featureId: "1",
+    });
+    expect(mapElement.style.cursor).toBe("pointer");
+
+    fake.emitFeatureHover("wme-layer-feature-mouse-leave", {
+      layerName: SIGN_LAYER_NAME,
+      featureId: "1",
+    });
+    expect(mapElement.style.cursor).toBe("crosshair");
+  });
 });

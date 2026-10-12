@@ -21,13 +21,24 @@ hands the style straight to an `OpenLayers.Layer.Vector`. These come from
 | Positive `graphicYOffset` is **downward** in screen space (it is added to the canvas/SVG y) | Post and icon offsets are both negative-to-lift |
 | `backgroundGraphic` is drawn first and uses the **same anchoring and offsets**, via `backgroundXOffset`/`backgroundYOffset`/`backgroundWidth`/`backgroundHeight` | A post behind an icon needs exactly one offset, and none if both are centred |
 | `graphicOpacity` falls back to `fillOpacity`, then carries the **previous** feature's alpha forward when neither is set | Always set `graphicOpacity: 1` explicitly, or one translucent marker bleeds onto its neighbours |
-| `style.cursor` is applied per feature (`a.style.cursor = style.cursor`) in the SVG renderer path | Works for a vector layer; the Canvas renderer has one canvas and cannot do per-feature cursor |
-| No filter property exists | A drop shadow cannot be styled — bake it into the asset's own SVG |
+| `style.cursor` is applied per feature (`a.style.cursor = style.cursor`) in the SVG renderer path | Per-feature cursor is impossible on the Canvas renderer, which is what SDK layers use — see below |
+| No filter property exists | A drop shadow cannot be styled — bake it into the asset's own SVG (as `marker-graphics.ts` does for the post) |
 
 Composing an icon on a post in pure `FeatureStyle` (no offsets beyond the
 lift): `externalGraphic` = the icon at its fixed size, `backgroundGraphic` = the
 post, both centred, with the icon lifted by the post's canvas height. See
 `src/visual-overlay/marker-style.ts`.
+
+**Cursor.** `FeatureStyle.cursor` cannot put a pointer over a marker. OL2 only
+applies it in the SVG renderer path; SDK layers draw on the Canvas renderer,
+where the entire layer is one `<canvas>` and no per-feature cursor can exist.
+The SDK exposes no cursor API either — only hover events
+(`wme-layer-feature-mouse-enter` / `-mouse-leave`, which require
+`Events.trackLayerEvents`) and `Map.getMapViewportElement()`. So
+`src/visual-overlay/marker-pointer.ts` drives the cursor from those hover
+events instead: renderer-independent, documented SDK surface only. It counts
+markers under the pointer so moving between adjacent markers cannot strand the
+pointer, and clears itself when the layer is hidden.
 
 ## WME SDK
 
@@ -39,12 +50,12 @@ post, both centred, with the icon lifted by the post's canvas height. See
 | `Map.setLayerVisibility` / `isLayerVisible` (v2.247+); `Map.getMapExtent` (v2.229) | SDK docs |
 | `styleContext` values are interpolated into `styleRules` as `${key}`; the context function receives `{ feature, zoomLevel }` | SDK docs, `index.SDK.Map` dynamic-style example |
 
-**Open question, deliberately unresolved:** whether `${key}` interpolation is
-honoured for `externalGraphic` specifically. The docs' own marker-layer example
-uses a constant `externalGraphic`, and no shipped script was found interpolating
-it. The SDK runtime is not published (only docs + typings), so this cannot be
-settled from source — it is the first thing to check in the WME test
-environment, and is recorded as unverified in issue #16's implementation note.
+**`${key}` interpolation for `externalGraphic`: verified, 2026-10-12.** It was
+left unresolved here because the SDK runtime is not published and no shipped
+script was found doing it. A WME test-environment run confirmed markers render,
+so dynamic per-feature icon URLs work through the style context — the mechanism
+`marker-style.ts` and `marker-pointer.ts` both rest on. Recorded here so it
+stays verified rather than re-derived.
 
 ## Typings traps that cost a compile round-trip
 
