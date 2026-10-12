@@ -3,11 +3,14 @@
  * Regenerate with `node scripts/refresh-sign-icon-catalogue.mjs`.
  *
  * Sign codes that have an official CC0 SVG in the Väylävirasto collection
- * finnishtransportagency/liikennemerkit, frozen at the commit SHA pinned in `src/constants.ts` (AC-14).
- * The Visual Overlay resolves each sign's icon against this list, so the
- * missing-asset fallback is decided before a marker is styled and never depends
- * on a network probe (AC-11).
+ * finnishtransportagency/liikennemerkit, frozen at the commit SHA below (AC-14). The Visual Overlay
+ * resolves each sign's icon against this list, so the missing-asset fallback is
+ * decided before a marker is styled and never depends on a network probe
+ * (AC-11).
  */
+
+/** The commit this catalogue was frozen at; must match `SIGN_ICON_ASSET_COMMIT` (AC-14). */
+export const CATALOGUE_COMMIT = "35be7a6593e70c8ed5f4e3ef54372d69a3fef558";
 
 /** Post-2020 signs: `collections/new_signs/svg` (598 codes). */
 export const NEW_SIGN_ICON_CODES = `

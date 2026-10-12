@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { SdkFeature } from "wme-sdk-typings";
 
@@ -14,19 +14,19 @@ import {
   SIGN_MARKER_STYLE_RULES,
 } from "../src/visual-overlay/marker-style";
 import { openSignMarkerLayer } from "../src/visual-overlay/sign-marker-layer";
+import { createFakeMapSurface } from "./support/fake-wme-sdk";
 import { sign } from "./support/turku-sign";
 
 const LAYER = SIGN_LAYER_NAME;
+/** Rule order is the priority: the plate rule first, the bare-icon catch-all last. */
+const [plateRule, iconRule] = SIGN_MARKER_STYLE_RULES;
 
 function createHost() {
-  const addLayer = vi.fn();
-  const addFeatureToLayer = vi.fn((args: { layerName: string; feature: SdkFeature }) => args.feature);
-  const removeAllFeaturesFromLayer = vi.fn();
-  const setLayerVisibility = vi.fn();
-  const sdk = {
-    Map: { addLayer, addFeatureToLayer, removeAllFeaturesFromLayer, setLayerVisibility },
-  };
-  return { sdk, addLayer, addFeatureToLayer, removeAllFeaturesFromLayer, setLayerVisibility };
+  return createFakeMapSurface();
+}
+
+function features(host: ReturnType<typeof createHost>): SdkFeature[] {
+  return host.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature);
 }
 
 /** The graphic the style context resolves for one sign code. */
@@ -38,10 +38,6 @@ function graphicFor(signCode: string): string {
   return graphic as string;
 }
 
-function features(host: ReturnType<typeof createHost>): SdkFeature[] {
-  return host.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature);
-}
-
 /** A sign the pinned collection has no SVG for → plate. */
 function unmatchedSign(): TrafficSign {
   return sign("990", 22.27, 60.45, { signCode: "990" });
@@ -50,10 +46,10 @@ function unmatchedSign(): TrafficSign {
 describe("Visual Overlay marker layer (AC-9)", () => {
   it("creates exactly one SDK marker layer, with the overlay's styling", () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host.sdk }).setVisible(true);
+    openSignMarkerLayer({ sdk: host }).setVisible(true);
 
     expect(host.addLayer).toHaveBeenCalledTimes(1);
-    const args = host.addLayer.mock.calls[0]![0];
+    const args = host.addLayer.mock.calls[0]![0]!;
     expect(args.layerName).toBe(LAYER);
     expect(args.styleRules).toEqual([...SIGN_MARKER_STYLE_RULES]);
     expect(args.styleContext).toBe(SIGN_MARKER_STYLE_CONTEXT);
@@ -66,9 +62,12 @@ describe("Visual Overlay marker layer (AC-9)", () => {
       sign("1", 22.27617187661397, 60.443853785959234),
       sign("2", 22.1, 60.4),
     ];
-    openSignMarkerLayer({ sdk: host.sdk }).render(signs);
+    openSignMarkerLayer({ sdk: host }).render(signs);
 
-    expect(host.addFeatureToLayer.mock.calls.map(([{ layerName }]) => layerName)).toEqual([LAYER, LAYER]);
+    expect(host.addFeatureToLayer.mock.calls.map(([{ layerName }]) => layerName)).toEqual([
+      LAYER,
+      LAYER,
+    ]);
     const added = features(host);
     expect(added).toHaveLength(2);
     expect(added[0]!.geometry).toEqual({
@@ -83,7 +82,7 @@ describe("Visual Overlay marker layer (AC-9)", () => {
 
   it("keeps the registry key as the feature id, falling back when absent", () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host.sdk }).render([
+    openSignMarkerLayer({ sdk: host }).render([
       sign("", 22.2, 60.4),
       sign("known", 22.2, 60.41),
     ]);
@@ -93,17 +92,20 @@ describe("Visual Overlay marker layer (AC-9)", () => {
 
   it("sets the layer's visibility once, rather than leaving it to chance", () => {
     const host = createHost();
-    const layer = openSignMarkerLayer({ sdk: host.sdk });
+    const layer = openSignMarkerLayer({ sdk: host });
 
     layer.setVisible(false);
     expect(host.setLayerVisibility).toHaveBeenCalledWith({ layerName: LAYER, visibility: false });
     layer.setVisible(true);
-    expect(host.setLayerVisibility).toHaveBeenLastCalledWith({ layerName: LAYER, visibility: true });
+    expect(host.setLayerVisibility).toHaveBeenLastCalledWith({
+      layerName: LAYER,
+      visibility: true,
+    });
   });
 
   it("re-creates the layer only once, and re-draws cleanly on a later render", () => {
     const host = createHost();
-    const layer = openSignMarkerLayer({ sdk: host.sdk });
+    const layer = openSignMarkerLayer({ sdk: host });
 
     layer.setVisible(true);
     layer.render([sign("1", 22.2, 60.4)]);
@@ -116,75 +118,68 @@ describe("Visual Overlay marker layer (AC-9)", () => {
 });
 
 describe("Visual Overlay marker styling (AC-10)", () => {
-  const iconRule = SIGN_MARKER_STYLE_RULES.find(
-    (rule) => rule.predicate?.({ [MARKER_KIND_PROPERTY]: OFFICIAL_MARKER }, 0) === true,
-  );
-  const plateRule = SIGN_MARKER_STYLE_RULES.find(
-    (rule) => rule.predicate?.({ [MARKER_KIND_PROPERTY]: FALLBACK_MARKER }, 0) === true,
-  );
-
   it("renders the official SVG bare: no plate, no background, no category colour", () => {
-    expect(iconRule?.style).toMatchObject({
+    expect(iconRule!.style).toMatchObject({
       externalGraphic: "${getSignGraphic}",
       graphicWidth: 22,
       graphicHeight: 22,
     });
     // Only the neutral post sits behind the sign — never a symbolic fill,
     // stroke, point radius or label that would dress the sign up.
-    expect(iconRule?.style.fill).toBeUndefined();
-    expect(iconRule?.style.fillColor).toBeUndefined();
-    expect(iconRule?.style.stroke).toBeUndefined();
-    expect(iconRule?.style.pointRadius).toBeUndefined();
-    expect(iconRule?.style.label).toBeUndefined();
-    expect(iconRule?.style.backgroundGraphic).toMatch(/^data:image\/svg\+xml/);
+    expect(iconRule!.style.fill).toBeUndefined();
+    expect(iconRule!.style.fillColor).toBeUndefined();
+    expect(iconRule!.style.stroke).toBeUndefined();
+    expect(iconRule!.style.pointRadius).toBeUndefined();
+    expect(iconRule!.style.label).toBeUndefined();
+    expect(iconRule!.style.backgroundGraphic).toMatch(/^data:image\/svg\+xml/);
   });
 
   it("anchors every marker on the thin neutral post, with a pointer cursor", () => {
-    for (const style of [iconRule?.style, plateRule?.style]) {
-      expect(style?.backgroundWidth).toBe(10);
-      expect(style?.backgroundHeight).toBe(12);
-      expect(style?.cursor).toBe("pointer");
+    for (const style of [iconRule!.style, plateRule!.style]) {
+      expect(style.backgroundWidth).toBe(10);
+      expect(style.backgroundHeight).toBe(12);
+      expect(style.cursor).toBe("pointer");
     }
     // The icon rides above the post instead of straddling it.
-    expect(iconRule?.style.graphicYOffset).toBe(-23);
+    expect(iconRule!.style.graphicYOffset).toBe(-23);
   });
 
   it("routes each sign's graphic through the style context, pinned at the SHA", () => {
-    const url = graphicFor("C38");
-    expect(url).toContain("@35be7a6593e70c8ed5f4e3ef54372d69a3fef558/");
-    expect(url).toContain("/new_signs/svg/C38.svg");
+    expect(graphicFor("C38")).toContain("@35be7a6593e70c8ed5f4e3ef54372d69a3fef558/");
+    expect(graphicFor("C38")).toContain("/new_signs/svg/C38.svg");
+  });
+
+  it("keeps the bare-icon rule a catch-all, so no marker can fall through unstyled", () => {
+    expect(iconRule!.predicate).toBeUndefined();
+    // The plate rule, applied first, only claims signs with no official SVG.
+    expect(plateRule!.predicate?.({ [MARKER_KIND_PROPERTY]: FALLBACK_MARKER }, 0)).toBe(true);
+    expect(plateRule!.predicate?.({ [MARKER_KIND_PROPERTY]: OFFICIAL_MARKER }, 0)).toBe(false);
+    expect(plateRule!.predicate?.({}, 0)).toBe(false);
   });
 });
 
 describe("Visual Overlay missing-asset fallback (AC-11)", () => {
-  const plateRule = SIGN_MARKER_STYLE_RULES.find(
-    (rule) => rule.predicate?.({ [MARKER_KIND_PROPERTY]: FALLBACK_MARKER }, 0) === true,
-  );
-  const iconRule = SIGN_MARKER_STYLE_RULES.find(
-    (rule) => rule.predicate?.({ [MARKER_KIND_PROPERTY]: OFFICIAL_MARKER }, 0) === true,
-  );
-
   it("routes a sign with no official SVG to the code plate", () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host.sdk }).render([unmatchedSign()]);
+    openSignMarkerLayer({ sdk: host }).render([unmatchedSign()]);
 
     expect(features(host)[0]!.properties).toMatchObject({
       [MARKER_KIND_PROPERTY]: FALLBACK_MARKER,
       [SIGN_CODE_PROPERTY]: "990",
     });
-    expect(plateRule?.style.externalGraphic).toBe("${getSignGraphic}");
+    expect(plateRule!.style.externalGraphic).toBe("${getSignGraphic}");
   });
 
   it("keeps the fallback plate on the same post, sized to carry its code", () => {
     // Same post as the official icon, but a wider plate for code + sublabel.
-    expect(plateRule?.style.backgroundGraphic).toBe(iconRule?.style.backgroundGraphic);
-    expect(plateRule?.style.graphicWidth).toBe(32);
-    expect(plateRule?.style.graphicHeight).toBe(22);
+    expect(plateRule!.style.backgroundGraphic).toBe(iconRule!.style.backgroundGraphic);
+    expect(plateRule!.style.graphicWidth).toBe(32);
+    expect(plateRule!.style.graphicHeight).toBe(22);
   });
 
   it("invents no substitute icon and hides no sign", () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host.sdk }).render([unmatchedSign(), sign("matched", 22.2, 60.4)]);
+    openSignMarkerLayer({ sdk: host }).render([unmatchedSign(), sign("matched", 22.2, 60.4)]);
 
     expect(features(host)).toHaveLength(2);
     const graphic = graphicFor("990");

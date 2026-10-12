@@ -6,7 +6,7 @@ import {
   SIGN_ICON_ASSET_BASE_URL,
   SIGN_ICON_ASSET_COMMIT,
 } from "../src/constants";
-import { NEW_SIGN_ICON_CODES, OLD_SIGN_ICON_CODES } from "../src/visual-overlay/sign-icon-catalogue.generated";
+import { CATALOGUE_COMMIT, NEW_SIGN_ICON_CODES, OLD_SIGN_ICON_CODES } from "../src/visual-overlay/sign-icon-catalogue.generated";
 import { officialSignIconUrl } from "../src/visual-overlay/sign-icon";
 
 const codes = (listing: string): readonly string[] => listing.split(/\s+/).filter((c) => c.length > 0);
@@ -14,6 +14,9 @@ const codes = (listing: string): readonly string[] => listing.split(/\s+/).filte
 describe("official sign icon resolution (AC-14)", () => {
   it("pins every asset URL to the frozen commit SHA", () => {
     expect(SIGN_ICON_ASSET_COMMIT).toBe("35be7a6593e70c8ed5f4e3ef54372d69a3fef558");
+    // Moving the pin without regenerating the catalogue would silently resolve
+    // icons from a commit the overlay no longer claims.
+    expect(CATALOGUE_COMMIT).toBe(SIGN_ICON_ASSET_COMMIT);
 
     for (const code of ["C38", "C32_5", "331", "A1.1", "344-2"]) {
       expect(officialSignIconUrl(code)).toContain(`/liikennemerkit@${SIGN_ICON_ASSET_COMMIT}/`);

@@ -70,6 +70,7 @@ function collectAssetCodes(listing) {
     bucket.push(file.name.slice(0, -".svg".length));
   }
   return {
+    commit,
     new: sortedUnique(buckets.get(NEW_SIGNS_DIR)),
     old: sortedUnique(buckets.get(OLD_SIGNS_DIR)),
   };
@@ -93,17 +94,20 @@ function sortedUnique(codes) {
   return [...new Set(codes)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
-function renderModule({ new: newCodes, old: oldCodes }) {
+function renderModule({ new: newCodes, old: oldCodes, commit }) {
   return `/**
  * GENERATED FILE — do not edit by hand.
  * Regenerate with \`node scripts/refresh-sign-icon-catalogue.mjs\`.
  *
  * Sign codes that have an official CC0 SVG in the Väylävirasto collection
- * ${REPOSITORY}, frozen at the commit SHA pinned in \`src/constants.ts\` (AC-14).
- * The Visual Overlay resolves each sign's icon against this list, so the
- * missing-asset fallback is decided before a marker is styled and never depends
- * on a network probe (AC-11).
+ * ${REPOSITORY}, frozen at the commit SHA below (AC-14). The Visual Overlay
+ * resolves each sign's icon against this list, so the missing-asset fallback is
+ * decided before a marker is styled and never depends on a network probe
+ * (AC-11).
  */
+
+/** The commit this catalogue was frozen at; must match \`SIGN_ICON_ASSET_COMMIT\` (AC-14). */
+export const CATALOGUE_COMMIT = "${commit}";
 
 /** Post-2020 signs: \`collections/new_signs/svg\` (${newCodes.length} codes). */
 export const NEW_SIGN_ICON_CODES = \`

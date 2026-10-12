@@ -3,14 +3,12 @@ import type { SdkFeature, SdkFeatureStyleContext, SdkFeatureStyleRule } from "wm
 import type { TrafficSign } from "../data/traffic-sign";
 import { SIGN_LAYER_NAME } from "../constants";
 import {
-  FALLBACK_MARKER,
   MARKER_KIND_PROPERTY,
-  OFFICIAL_MARKER,
+  resolveSignMarkerGraphic,
   SIGN_CODE_PROPERTY,
   SIGN_MARKER_STYLE_CONTEXT,
   SIGN_MARKER_STYLE_RULES,
 } from "./marker-style";
-import { officialSignIconUrl } from "./sign-icon";
 
 /** The `sdk.Map` calls the Visual Overlay makes (spec §4.4, §7). */
 export interface SignMarkerLayerHost {
@@ -89,7 +87,7 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
           geometry: { type: "Point", coordinates: [longitude, latitude] },
           properties: {
             [SIGN_CODE_PROPERTY]: sign.signCode,
-            [MARKER_KIND_PROPERTY]: markerKindFor(sign.signCode),
+            [MARKER_KIND_PROPERTY]: resolveSignMarkerGraphic(sign.signCode).kind,
           },
         },
       });
@@ -100,9 +98,4 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
 /** One marker per sign: the registry key when present, else a position-based id. */
 function signFeatureId(sign: TrafficSign, position: number): string {
   return sign.key === "" ? `turku-sign/${position}` : sign.key;
-}
-
-/** Whether the sign's code resolves to an official SVG, or needs the plate. */
-function markerKindFor(signCode: string): typeof OFFICIAL_MARKER | typeof FALLBACK_MARKER {
-  return officialSignIconUrl(signCode) === null ? FALLBACK_MARKER : OFFICIAL_MARKER;
 }

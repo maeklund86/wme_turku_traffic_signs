@@ -3,10 +3,30 @@ import { vi } from "vitest";
 import type { SdkFeature } from "wme-sdk-typings";
 
 /**
+ * The SDK marker-layer surface the Visual Overlay drives, as spies. The spies
+ * are exposed both nested under `Map` (the shape `sdk.Map` presents) and flat,
+ * so tests can pass the whole object as a stand-in SDK and still assert on the
+ * calls directly.
+ */
+export function createFakeMapSurface() {
+  const addLayer = vi.fn();
+  const addFeatureToLayer = vi.fn((args: { layerName: string; feature: SdkFeature }) => args.feature);
+  const removeAllFeaturesFromLayer = vi.fn();
+  const setLayerVisibility = vi.fn();
+  return {
+    Map: { addLayer, addFeatureToLayer, removeAllFeaturesFromLayer, setLayerVisibility },
+    addLayer,
+    addFeatureToLayer,
+    removeAllFeaturesFromLayer,
+    setLayerVisibility,
+  };
+}
+
+/**
  * Structural stand-in for the SDK surface the bootstrap ticket uses:
- * Sidebar.registerScriptTab (real DOM elements), the wme-ready event bus, the
- * marker-layer calls of the Visual Overlay, and a LayerSwitcher spy that must
- * stay untouched (AC-12).
+ * Sidebar.registerScriptTab (real DOM elements) and the wme-ready event bus.
+ * The marker-layer spies come from `createFakeMapSurface` so the bootstrap and
+ * Visual Overlay tests drive the same seam.
  */
 export function createFakeWmeSdk() {
   const sidebarHost = document.createElement("div");
@@ -18,15 +38,12 @@ export function createFakeWmeSdk() {
     return { tabLabel, tabPane };
   });
   const wmeReadyHandlers: Array<() => void> = [];
-  const addLayer = vi.fn();
-  const addFeatureToLayer = vi.fn(({ feature }: { feature: SdkFeature }) => feature);
-  const removeAllFeaturesFromLayer = vi.fn();
-  const setLayerVisibility = vi.fn();
+  const map = createFakeMapSurface();
   /** A spy, not a stub: the tests assert it is never called (AC-12). */
   const addLayerCheckbox = vi.fn();
   const sdk = {
     Sidebar: { registerScriptTab },
-    Map: { addLayer, addFeatureToLayer, removeAllFeaturesFromLayer, setLayerVisibility },
+    Map: map.Map,
     LayerSwitcher: { addLayerCheckbox },
     Events: {
       on: vi.fn(({ eventName, eventHandler }: { eventName: string; eventHandler: () => void }) => {
@@ -39,7 +56,7 @@ export function createFakeWmeSdk() {
   return {
     sdk,
     registerScriptTab,
-    map: { addLayer, addFeatureToLayer, removeAllFeaturesFromLayer, setLayerVisibility },
+    map,
     layerSwitcher: { addLayerCheckbox },
     emitWmeReady: () => {
       for (const handler of wmeReadyHandlers) handler();

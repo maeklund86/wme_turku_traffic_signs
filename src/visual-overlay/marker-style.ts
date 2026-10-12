@@ -18,11 +18,31 @@ export const SIGN_CODE_PROPERTY = "signCode";
 export const MARKER_KIND_PROPERTY = "markerKind";
 export const OFFICIAL_MARKER = "official";
 export const FALLBACK_MARKER = "fallback";
+export type MarkerKind = typeof OFFICIAL_MARKER | typeof FALLBACK_MARKER;
 
-/** Style-context key the `${...}` placeholders below expand from. */
+/** Style-context key the `${...}` placeholder below expands from. */
 export const SIGN_GRAPHIC_CONTEXT_KEY = "getSignGraphic";
 
 type MarkerStyle = SdkFeatureStyleRule["style"];
+
+/**
+ * What a marker draws for one sign code, and which rule that predetermines:
+ * the official SVG from the pinned jsDelivr commit, or the bordered code plate
+ * when the code has none. This is the single place the decision is made, so the
+ * feature property the style rules switch on and the graphic the styles draw
+ * can never disagree.
+ */
+export interface SignMarkerGraphic {
+  readonly kind: MarkerKind;
+  readonly graphic: string;
+}
+
+export function resolveSignMarkerGraphic(signCode: string): SignMarkerGraphic {
+  const url = officialSignIconUrl(signCode);
+  return url === null
+    ? { kind: FALLBACK_MARKER, graphic: fallbackPlateGraphic(signCode) }
+    : { kind: OFFICIAL_MARKER, graphic: url };
+}
 
 /**
  * What every marker shares: the neutral post behind the sign, and a pointer
@@ -67,8 +87,10 @@ const FALLBACK_PLATE_STYLE: MarkerStyle = {
 
 /**
  * One SDK marker layer's style rules. The SDK applies later rules with higher
- * priority, so the official-icon rule comes last as the catch-all: a sign
- * without an official SVG takes the plate rule, everything else the icon.
+ * priority, so the catch-all comes last and carries no predicate: a sign whose
+ * code has no official SVG takes the plate rule, and everything else — however
+ * it reaches the layer — still draws as a bare icon on the post rather than
+ * falling back to the SDK's default styling.
  */
 export const SIGN_MARKER_STYLE_RULES: readonly SdkFeatureStyleRule[] = [
   {
@@ -76,20 +98,19 @@ export const SIGN_MARKER_STYLE_RULES: readonly SdkFeatureStyleRule[] = [
     style: FALLBACK_PLATE_STYLE,
   },
   {
-    predicate: (properties) => properties[MARKER_KIND_PROPERTY] === OFFICIAL_MARKER,
     style: OFFICIAL_ICON_STYLE,
   },
 ];
 
 /**
- * Resolves each feature's graphic: the official SVG from the pinned jsDelivr
- * commit when the sign's code has one, the code plate when it does not. Both
- * styles ask the same key, so a marker never draws an unresolved URL.
+ * Resolves each feature's graphic from its sign code. Both rules ask the same
+ * key, so a marker never draws an unresolved URL — and a code with no official
+ * SVG gets the plate whichever rule it lands in.
  */
 export const SIGN_MARKER_STYLE_CONTEXT: SdkFeatureStyleContext = {
   [SIGN_GRAPHIC_CONTEXT_KEY]: ({ feature }) => {
     const signCode = feature?.properties?.[SIGN_CODE_PROPERTY];
     if (typeof signCode !== "string") return undefined;
-    return officialSignIconUrl(signCode) ?? fallbackPlateGraphic(signCode);
+    return resolveSignMarkerGraphic(signCode).graphic;
   },
 };
