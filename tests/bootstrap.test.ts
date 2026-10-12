@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { WmeSDK } from "wme-sdk-typings";
 
 import { bootstrap, type SignDataDeps, type SdkHostWindow } from "../src/bootstrap";
-import { CACHE_TTL_MS, SIGN_PANEL_SETTINGS_KEY } from "../src/constants";
+import { CACHE_TTL_MS, SIGN_LAYER_NAME, SIGN_PANEL_SETTINGS_KEY } from "../src/constants";
 import type { SignDatasetRecord } from "../src/data/sign-dataset-record";
+import type { TrafficSign } from "../src/data/traffic-sign";
 import { createMemoryStore } from "../src/storage/memory-store";
 import type { KeyValueStore } from "../src/storage/key-value-store";
 import { createFakeDatasetStore } from "./support/fake-dataset-store";
@@ -228,5 +229,98 @@ describe("userscript bootstrap", () => {
     fake.emitWmeReady();
     await vi.waitFor(() => expect(dataDeps.fetchDataset).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(dataDeps.datasetStore.write).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("visual overlay wiring", () => {
+  function bootWithSigns(signs: readonly TrafficSign[]) {
+    silenceConsole();
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const dataDeps = createFakeDataDeps({ record: record("2026-10-11T19:50:25.6808150Z", NOW, signs) });
+    return {
+      fake,
+      resolveSdkInitialized,
+      started: bootstrap({
+        pageWindow,
+        document: globalThis.document,
+        storage: createMemoryStore(),
+        signData: dataDeps,
+      }),
+    };
+  }
+
+  const addedFeatures = (fake: ReturnType<typeof createFakeWmeSdk>) =>
+    fake.map.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature);
+
+  it("creates one marker layer on wme-ready and puts one feature per sign on it", async () => {
+    const { fake, resolveSdkInitialized, started } = bootWithSigns([
+      sign("321020431", 22.27617187661397, 60.443853785959234),
+      sign("321020432", 22.1, 60.4),
+    ]);
+
+    resolveSdkInitialized();
+    await started;
+    expect(fake.map.addLayer).not.toHaveBeenCalled();
+
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(2));
+
+    expect(fake.map.addLayer).toHaveBeenCalledTimes(1);
+    expect(fake.map.addLayer.mock.calls[0]![0].layerName).toBe(SIGN_LAYER_NAME);
+    const features = addedFeatures(fake);
+    expect(features.map((feature) => feature.id)).toEqual(["321020431", "321020432"]);
+    expect(features.map((feature) => feature.geometry.type)).toEqual(["Point", "Point"]);
+    // WGS84 straight through: no reprojection between the registry and the map.
+    expect(features[0]!.geometry.coordinates).toEqual([22.27617187661397, 60.443853785959234]);
+  });
+
+  it("re-creates the layer once and re-draws after every wme-ready", async () => {
+    const { fake, resolveSdkInitialized, started } = bootWithSigns([sign("1", 22.2, 60.4)]);
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(2));
+
+    expect(fake.map.addLayer).toHaveBeenCalledTimes(1);
+    expect(fake.map.removeAllFeaturesFromLayer).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies the persisted visibility flag to the layer", async () => {
+    const { fake, resolveSdkInitialized, started } = bootWithSigns([sign("1", 22.2, 60.4)]);
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+
+    // Persisted state re-applies on a later wme-ready too.
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(2));
+    expect(fake.map.setLayerVisibility).toHaveBeenCalledWith({
+      layerName: SIGN_LAYER_NAME,
+      visibility: true,
+    });
+    expect(fake.map.setLayerVisibility).toHaveBeenLastCalledWith({
+      layerName: SIGN_LAYER_NAME,
+      visibility: true,
+    });
+  });
+
+  it("never registers the layer in WME's LayerSwitcher (AC-12)", async () => {
+    const { fake, resolveSdkInitialized, started } = bootWithSigns([sign("1", 22.2, 60.4)]);
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+
+    // The switcher entry is opt-in; the overlay simply never asks for one.
+    expect(fake.layerSwitcher.addLayerCheckbox).not.toHaveBeenCalled();
   });
 });

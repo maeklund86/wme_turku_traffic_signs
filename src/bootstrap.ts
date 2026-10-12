@@ -5,6 +5,7 @@ import type { DatasetStore } from "./data/dataset-store";
 import type { SignDatasetRecord } from "./data/sign-dataset-record";
 import { openSignDatasetSource } from "./data/sign-dataset-service";
 import { SettingsRepository } from "./settings/settings-repository";
+import { openSignMarkerLayer } from "./visual-overlay/sign-marker-layer";
 import { openSignPanelTab } from "./sign-panel/tab";
 import type { KeyValueStore } from "./storage/key-value-store";
 
@@ -61,17 +62,28 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
     fetchDataset: deps.signData.fetchDataset,
   });
 
+  const markerLayer = openSignMarkerLayer({ sdk });
+
   sdk.Events.on({
     eventName: "wme-ready",
     eventHandler: () => {
-      void signPanel.refresh().catch((error: unknown) => {
-        console.error("[turku-signs] Failed to re-apply Sign Panel state on wme-ready", error);
-      });
-      // Cache-first and non-blocking: a fresh cache renders with zero
-      // requests; a stale one renders now and swaps in the background.
-      void signDataset.load().catch((error: unknown) => {
-        console.error("[turku-signs] Failed to load sign data on wme-ready", error);
+      void onWmeReady().catch((error: unknown) => {
+        console.error("[turku-signs] Failed to re-apply script state on wme-ready", error);
       });
     },
   });
+
+  /**
+   * Re-applies the script's state after every wme-ready, in spec order
+   * (§4.1): register the Sign Panel, create the marker layer, re-apply the
+   * persisted visibility, then render from the Client Cache.
+   */
+  async function onWmeReady(): Promise<void> {
+    const settings = await signPanel.refresh();
+    markerLayer.setVisible(settings.showSigns);
+    // Cache-first and non-blocking: a fresh cache renders with zero requests;
+    // a stale one renders now and swaps in the background.
+    const dataset = await signDataset.load();
+    markerLayer.render(dataset.index.signs);
+  }
 }

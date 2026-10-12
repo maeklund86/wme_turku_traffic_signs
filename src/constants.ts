@@ -5,6 +5,24 @@ export const SIGN_PANEL_TAB_LABEL = "Sign Panel";
 export const ATTRIBUTION_TEXT = "Traffic sign data © City of Turku, CC BY 4.0";
 export const ATTRIBUTION_FOOTER_CLASS = "turku-signs-attribution";
 
+/** Name of the single SDK marker layer the Visual Overlay creates (spec §4.4). */
+export const SIGN_LAYER_NAME = "turku_traffic_signs";
+
+/**
+ * Commit SHA the official sign SVGs are pinned to inside the asset URL
+ * (AC-14). jsDelivr resolves the SHA, so the rendered icons never change when
+ * the upstream repository's `main` moves.
+ */
+export const SIGN_ICON_ASSET_COMMIT = "35be7a6593e70c8ed5f4e3ef54372d69a3fef558";
+/** Base URL of the pinned Väylävirasto CC0 sign-SVG collection on jsDelivr. */
+export const SIGN_ICON_ASSET_BASE_URL =
+  "https://cdn.jsdelivr.net/gh/finnishtransportagency/liikennemerkit" +
+  `@${SIGN_ICON_ASSET_COMMIT}/collections`;
+/** Post-2020 signs carry letter-prefixed codes (spec §4.4). */
+export const NEW_SIGN_SVG_PATH = "new_signs/svg";
+/** Pre-2020 signs carry numeric codes (spec §4.4). */
+export const OLD_SIGN_SVG_PATH = "old_signs/svg";
+
 /** Trimble OGC API items endpoint for the municipal sign registry (spec §4.2). */
 export const TRIMBLE_ITEMS_ENDPOINT =
   "https://opaskartta.turku.fi/trimbleogcapi/collections/GIS:Liikennemerkit/items";
