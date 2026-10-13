@@ -1,10 +1,10 @@
 import type { WmeSDK } from "wme-sdk-typings";
 
 import { SCRIPT_ID, SCRIPT_NAME } from "./constants";
+import type { BoundingBox } from "./data/bounding-box";
 import type { DatasetStore } from "./data/dataset-store";
 import type { SignDatasetRecord } from "./data/sign-dataset-record";
 import { openSignDatasetSource } from "./data/sign-dataset-service";
-import type { BoundingBox } from "./data/bounding-box";
 import { overlapsTurkuCoverage } from "./data/turku-coverage";
 import { SettingsRepository } from "./settings/settings-repository";
 import { openSignMarkerLayer } from "./visual-overlay/sign-marker-layer";

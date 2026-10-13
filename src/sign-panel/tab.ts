@@ -16,9 +16,9 @@ export interface SignPanelTabHost {
 }
 
 /**
- * Whether the map viewport overlaps the Turku coverage extent. Read once per
- * wme-ready, so the toggle's enabled state and the notice always agree (and
- * the render gate reads the same question — spec §4.5).
+ * Whether the map viewport overlaps the Turku coverage extent. The panel's
+ * toggle and notice, and the render gate, all ask this same question, so the
+ * tab and the map cannot disagree (spec §4.5).
  */
 export interface SignPanelCoverage {
   isCovered(): boolean;

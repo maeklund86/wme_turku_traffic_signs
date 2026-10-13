@@ -25,7 +25,7 @@ The rectangular geographic coordinate boundary defined by the currently visible 
 _Avoid_: Screen box, tile box, crop
 
 **Turku Coverage Extent**:
-The WGS84 bounding box of the City of Turku sign registry's coverage. Outside it the Sign Panel shows a one-line "outside Turku coverage" notice, its visibility toggle is disabled, and no signs render.
+The WGS84 bounding box of the City of Turku sign registry's coverage.
 _Avoid_: Map extent, viewport box, city limits
 
 **Client Cache**:

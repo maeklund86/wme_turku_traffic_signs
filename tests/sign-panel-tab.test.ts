@@ -1,35 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  ATTRIBUTION_TEXT,
-  OUTSIDE_TURKU_COVERAGE_CLASS,
-  OUTSIDE_TURKU_COVERAGE_TEXT,
-  SIGN_VISIBILITY_LABEL_TEXT,
-  SIGN_VISIBILITY_TOGGLE_CLASS,
-} from "../src/constants";
 import { openSignPanelTab } from "../src/sign-panel/tab";
 import { SettingsRepository } from "../src/settings/settings-repository";
 import { createMemoryStore } from "../src/storage/memory-store";
 import type { SignMarkerLayer } from "../src/visual-overlay/sign-marker-layer";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
-
-async function paneOf(registerScriptTab: ReturnType<typeof vi.fn>, index = 0): Promise<HTMLElement> {
-  const result = registerScriptTab.mock.results[index];
-  if (!result) throw new Error("registerScriptTab was never called");
-  return (await result.value).tabPane as HTMLElement;
-}
-
-function toggleOf(pane: HTMLElement): HTMLInputElement {
-  const toggle = pane.querySelector<HTMLInputElement>(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`);
-  if (!toggle) throw new Error("the visibility checkbox was never rendered");
-  return toggle;
-}
-
-function noticeOf(pane: HTMLElement): HTMLElement {
-  const notice = pane.querySelector<HTMLElement>(`.${OUTSIDE_TURKU_COVERAGE_CLASS}`);
-  if (!notice) throw new Error("the coverage notice was never rendered");
-  return notice;
-}
+import { noticeOf, paneOf, toggleCheckbox, toggleOf } from "./support/sign-panel-pane";
 
 /** Stands in for the Visual Overlay; the panel only ever drives its visibility. */
 function createFakeLayer() {
@@ -64,15 +40,6 @@ async function openTab(options: { covered?: boolean; repository?: SettingsReposi
   };
 }
 
-/** Clicks the checkbox the way a user does: set the state, fire the change. */
-async function toggleCheckbox(pane: HTMLElement, checked: boolean): Promise<void> {
-  const toggle = toggleOf(pane);
-  toggle.checked = checked;
-  toggle.dispatchEvent(new Event("change", { bubbles: true }));
-  // The handler persists asynchronously; let it settle before asserting.
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 describe("Sign Panel tab shell", () => {
   it("does not call into WME before the first wme-ready", async () => {
     const { sdk, registerScriptTab } = createFakeWmeSdk();
@@ -101,9 +68,9 @@ describe("Sign Panel tab shell", () => {
     const toggle = toggleOf(pane);
     expect(toggle.type).toBe("checkbox");
     expect(toggle.checked).toBe(true);
-    expect(toggle.closest("label")?.textContent).toBe(SIGN_VISIBILITY_LABEL_TEXT);
+    expect(toggle.closest("label")?.textContent).toBe("Show traffic signs");
     // The footer stays below the controls, permanent and last.
-    expect(pane.lastElementChild?.textContent).toBe(ATTRIBUTION_TEXT);
+    expect(pane.lastElementChild?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
   });
 
   it("has no dismiss control anywhere in the tab (footer is permanent)", async () => {
@@ -117,7 +84,7 @@ describe("Sign Panel tab shell", () => {
     // The one input the tab owns is the visibility checkbox.
     const inputs = pane.querySelectorAll("input");
     expect(inputs).toHaveLength(1);
-    expect(inputs[0]!.className).toBe(SIGN_VISIBILITY_TOGGLE_CLASS);
+    expect(inputs[0]!.className).toBe("turku-signs-visibility-toggle");
   });
 
   it("does not duplicate the controls or the footer when state is re-applied on a later ready", async () => {
@@ -129,7 +96,7 @@ describe("Sign Panel tab shell", () => {
     expect(registerScriptTab).toHaveBeenCalledTimes(1);
     const pane = await paneOf(registerScriptTab);
     expect(pane.querySelectorAll("input")).toHaveLength(1);
-    expect(pane.lastElementChild?.textContent).toBe(ATTRIBUTION_TEXT);
+    expect(pane.lastElementChild?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
     expect(layer.setVisible).toHaveBeenCalledTimes(2);
   });
 
@@ -144,7 +111,7 @@ describe("Sign Panel tab shell", () => {
     expect(registerScriptTab).toHaveBeenCalledTimes(2);
     const freshPane = await paneOf(registerScriptTab, 1);
     expect(freshPane.querySelectorAll("input")).toHaveLength(1);
-    expect(freshPane.lastElementChild?.textContent).toBe(ATTRIBUTION_TEXT);
+    expect(freshPane.lastElementChild?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
   });
 
   it("re-applies the persisted visibility flag and category filter on every ready", async () => {
@@ -222,7 +189,9 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
 
     const pane = await paneOf(registerScriptTab);
     expect(noticeOf(pane).hidden).toBe(false);
-    expect(noticeOf(pane).textContent).toBe(OUTSIDE_TURKU_COVERAGE_TEXT);
+    expect(noticeOf(pane).textContent).toBe(
+      "Outside Turku coverage — the sign registry only covers the City of Turku.",
+    );
     expect(toggleOf(pane).disabled).toBe(true);
     expect(isCovered).toHaveBeenCalled();
     expect(layer.setVisible).not.toHaveBeenCalled();

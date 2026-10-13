@@ -3,21 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { WmeSDK } from "wme-sdk-typings";
 
 import { bootstrap, type SignDataDeps, type SdkHostWindow } from "../src/bootstrap";
-import {
-  ATTRIBUTION_TEXT,
-  CACHE_TTL_MS,
-  OUTSIDE_TURKU_COVERAGE_CLASS,
-  OUTSIDE_TURKU_COVERAGE_TEXT,
-  SIGN_LAYER_NAME,
-  SIGN_PANEL_SETTINGS_KEY,
-  SIGN_VISIBILITY_TOGGLE_CLASS,
-} from "../src/constants";
+import { CACHE_TTL_MS, SIGN_LAYER_NAME, SIGN_PANEL_SETTINGS_KEY } from "../src/constants";
 import type { SignDatasetRecord } from "../src/data/sign-dataset-record";
 import type { TrafficSign } from "../src/data/traffic-sign";
 import { createMemoryStore } from "../src/storage/memory-store";
 import type { KeyValueStore } from "../src/storage/key-value-store";
 import { createFakeDatasetStore } from "./support/fake-dataset-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
+import { noticeOf, paneOf, toggleCheckbox, toggleOf } from "./support/sign-panel-pane";
 import { silenceConsole } from "./support/silence-console";
 import { record, sign } from "./support/turku-sign";
 
@@ -146,10 +139,10 @@ describe("userscript bootstrap", () => {
     expect(fake.registerScriptTab).toHaveBeenCalledTimes(1);
     const { tabPane } = await fake.registerScriptTab.mock.results[0]!.value;
     // The pane holds the visibility control above the permanent footer.
-    expect((tabPane as HTMLElement).lastElementChild?.textContent).toBe(ATTRIBUTION_TEXT);
-    expect(
-      (tabPane as HTMLElement).querySelector(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`),
-    ).not.toBeNull();
+    expect((tabPane as HTMLElement).lastElementChild?.textContent).toBe(
+      "Traffic sign data © City of Turku, CC BY 4.0",
+    );
+    expect((tabPane as HTMLElement).querySelector("input")).not.toBeNull();
   });
 
   it("opens the Client Cache before the first wme-ready", async () => {
@@ -362,18 +355,6 @@ describe("visual overlay wiring", () => {
 });
 
 describe("Sign Panel visibility control", () => {
-  async function paneOf(fake: ReturnType<typeof createFakeWmeSdk>): Promise<HTMLElement> {
-    const result = fake.registerScriptTab.mock.results[0];
-    if (!result) throw new Error("registerScriptTab was never called");
-    return (await result.value).tabPane as HTMLElement;
-  }
-
-  async function toggleOf(fake: ReturnType<typeof createFakeWmeSdk>): Promise<HTMLInputElement> {
-    const toggle = (await paneOf(fake)).querySelector<HTMLInputElement>(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`);
-    if (!toggle) throw new Error("the visibility checkbox was never rendered");
-    return toggle;
-  }
-
   it("defaults the checkbox on inside the coverage extent and applies the flag (AC-16)", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
@@ -392,7 +373,8 @@ describe("Sign Panel visibility control", () => {
     fake.emitWmeReady();
     await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
 
-    expect((await toggleOf(fake)).checked).toBe(true);
+    const pane = await paneOf(fake.registerScriptTab);
+    expect(toggleOf(pane).checked).toBe(true);
     expect(fake.map.setLayerVisibility).toHaveBeenCalledWith({
       layerName: SIGN_LAYER_NAME,
       visibility: true,
@@ -422,10 +404,12 @@ describe("Sign Panel visibility control", () => {
 
     expect(fake.map.addLayer).not.toHaveBeenCalled();
     expect(fake.map.addFeatureToLayer).not.toHaveBeenCalled();
-    const notice = (await paneOf(fake)).querySelector<HTMLElement>(`.${OUTSIDE_TURKU_COVERAGE_CLASS}`);
-    expect(notice?.hidden).toBe(false);
-    expect(notice?.textContent).toBe(OUTSIDE_TURKU_COVERAGE_TEXT);
-    expect((await toggleOf(fake)).disabled).toBe(true);
+    const pane = await paneOf(fake.registerScriptTab);
+    expect(noticeOf(pane).hidden).toBe(false);
+    expect(noticeOf(pane).textContent).toBe(
+      "Outside Turku coverage — the sign registry only covers the City of Turku.",
+    );
+    expect(toggleOf(pane).disabled).toBe(true);
   });
 
   it("toggling the checkbox issues no network requests and keeps the markers (AC-18)", async () => {
@@ -447,10 +431,7 @@ describe("Sign Panel visibility control", () => {
     fake.emitWmeReady();
     await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
 
-    const toggle = await toggleOf(fake);
-    toggle.checked = false;
-    toggle.dispatchEvent(new Event("change", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await toggleCheckbox(await paneOf(fake.registerScriptTab), false);
 
     expect(fake.map.setLayerVisibility).toHaveBeenLastCalledWith({
       layerName: SIGN_LAYER_NAME,
