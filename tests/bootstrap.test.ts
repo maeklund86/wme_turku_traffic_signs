@@ -3,7 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import type { WmeSDK } from "wme-sdk-typings";
 
 import { bootstrap, type SignDataDeps, type SdkHostWindow } from "../src/bootstrap";
-import { CACHE_TTL_MS, SIGN_LAYER_NAME, SIGN_PANEL_SETTINGS_KEY } from "../src/constants";
+import {
+  ATTRIBUTION_TEXT,
+  CACHE_TTL_MS,
+  OUTSIDE_TURKU_COVERAGE_CLASS,
+  OUTSIDE_TURKU_COVERAGE_TEXT,
+  SIGN_LAYER_NAME,
+  SIGN_PANEL_SETTINGS_KEY,
+  SIGN_VISIBILITY_TOGGLE_CLASS,
+} from "../src/constants";
 import type { SignDatasetRecord } from "../src/data/sign-dataset-record";
 import type { TrafficSign } from "../src/data/traffic-sign";
 import { createMemoryStore } from "../src/storage/memory-store";
@@ -137,7 +145,11 @@ describe("userscript bootstrap", () => {
 
     expect(fake.registerScriptTab).toHaveBeenCalledTimes(1);
     const { tabPane } = await fake.registerScriptTab.mock.results[0]!.value;
-    expect((tabPane as HTMLElement).childElementCount).toBe(1);
+    // The pane holds the visibility control above the permanent footer.
+    expect((tabPane as HTMLElement).lastElementChild?.textContent).toBe(ATTRIBUTION_TEXT);
+    expect(
+      (tabPane as HTMLElement).querySelector(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`),
+    ).not.toBeNull();
   });
 
   it("opens the Client Cache before the first wme-ready", async () => {
@@ -241,6 +253,7 @@ describe("visual overlay wiring", () => {
     return {
       fake,
       resolveSdkInitialized,
+      dataDeps,
       started: bootstrap({
         pageWindow,
         document: globalThis.document,
@@ -345,5 +358,108 @@ describe("visual overlay wiring", () => {
       featureId: "1",
     });
     expect(mapElement.style.cursor).toBe("crosshair");
+  });
+});
+
+describe("Sign Panel visibility control", () => {
+  async function paneOf(fake: ReturnType<typeof createFakeWmeSdk>): Promise<HTMLElement> {
+    const result = fake.registerScriptTab.mock.results[0];
+    if (!result) throw new Error("registerScriptTab was never called");
+    return (await result.value).tabPane as HTMLElement;
+  }
+
+  async function toggleOf(fake: ReturnType<typeof createFakeWmeSdk>): Promise<HTMLInputElement> {
+    const toggle = (await paneOf(fake)).querySelector<HTMLInputElement>(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`);
+    if (!toggle) throw new Error("the visibility checkbox was never rendered");
+    return toggle;
+  }
+
+  it("defaults the checkbox on inside the coverage extent and applies the flag (AC-16)", async () => {
+    silenceConsole();
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage: createMemoryStore(),
+      signData: createFakeDataDeps({
+        record: record("2026-10-11T19:50:25.6808150Z", NOW, [sign("1", 22.2, 60.4)]),
+      }),
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+
+    expect((await toggleOf(fake)).checked).toBe(true);
+    expect(fake.map.setLayerVisibility).toHaveBeenCalledWith({
+      layerName: SIGN_LAYER_NAME,
+      visibility: true,
+    });
+  });
+
+  it("renders nothing and explains why outside the coverage extent (AC-17)", async () => {
+    silenceConsole();
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    // A viewport west of Turku that misses the coverage extent entirely.
+    fake.map.getMapExtent.mockReturnValue([21.5, 60.0, 22.0, 60.2]);
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage: createMemoryStore(),
+      signData: createFakeDataDeps({
+        record: record("2026-10-11T19:50:25.6808150Z", NOW, [sign("1", 22.2, 60.4)]),
+      }),
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    // Let the ready handler run past the skipped render.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fake.map.addLayer).not.toHaveBeenCalled();
+    expect(fake.map.addFeatureToLayer).not.toHaveBeenCalled();
+    const notice = (await paneOf(fake)).querySelector<HTMLElement>(`.${OUTSIDE_TURKU_COVERAGE_CLASS}`);
+    expect(notice?.hidden).toBe(false);
+    expect(notice?.textContent).toBe(OUTSIDE_TURKU_COVERAGE_TEXT);
+    expect((await toggleOf(fake)).disabled).toBe(true);
+  });
+
+  it("toggling the checkbox issues no network requests and keeps the markers (AC-18)", async () => {
+    silenceConsole();
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const dataDeps = createFakeDataDeps({
+      record: record("2026-10-11T19:50:25.6808150Z", NOW, [sign("1", 22.2, 60.4)]),
+    });
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage: createMemoryStore(),
+      signData: dataDeps,
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+
+    const toggle = await toggleOf(fake);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fake.map.setLayerVisibility).toHaveBeenLastCalledWith({
+      layerName: SIGN_LAYER_NAME,
+      visibility: false,
+    });
+    // Display-only: no fetch, no cache write, no re-render, markers stay put.
+    expect(dataDeps.fetchDataset).not.toHaveBeenCalled();
+    expect(dataDeps.datasetStore.write).not.toHaveBeenCalled();
+    expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1);
+    expect(fake.map.removeAllFeaturesFromLayer).toHaveBeenCalledTimes(1);
   });
 });

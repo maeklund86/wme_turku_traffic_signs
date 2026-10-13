@@ -8,6 +8,19 @@ export const ATTRIBUTION_FOOTER_CLASS = "turku-signs-attribution";
 /** Name of the single SDK marker layer the Visual Overlay creates (spec §4.4). */
 export const SIGN_LAYER_NAME = "turku_traffic_signs";
 
+/** Label on the Sign Panel's visibility checkbox (spec §4.5). */
+export const SIGN_VISIBILITY_LABEL_TEXT = "Show traffic signs";
+/** Wrapper for the visibility checkbox and the coverage notice (spec §4.5). */
+export const SIGN_VISIBILITY_CLASS = "turku-signs-visibility";
+export const SIGN_VISIBILITY_TOGGLE_CLASS = "turku-signs-visibility-toggle";
+/**
+ * One-line notice the Sign Panel shows outside the Turku coverage extent,
+ * where the toggle is disabled and nothing renders (spec §4.5, AC-17).
+ */
+export const OUTSIDE_TURKU_COVERAGE_TEXT =
+  "Outside Turku coverage — the sign registry only covers the City of Turku.";
+export const OUTSIDE_TURKU_COVERAGE_CLASS = "turku-signs-outside-coverage";
+
 /**
  * Commit SHA the official sign SVGs are pinned to inside the asset URL
  * (AC-14). jsDelivr resolves the SHA, so the rendered icons never change when

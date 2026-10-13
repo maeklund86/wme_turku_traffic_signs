@@ -2,6 +2,8 @@ import { vi } from "vitest";
 
 import type { SdkFeature } from "wme-sdk-typings";
 
+import { TURKU_EXTENT } from "../../src/constants";
+
 /** Events the fake SDK is allowed to hand out; anything else is a wiring mistake. */
 const SUPPORTED_EVENTS = [
   "wme-ready",
@@ -23,13 +25,16 @@ export function createFakeMapSurface(mapElement: HTMLElement | (() => never) = d
   const getMapViewportElement = vi.fn(() =>
     typeof mapElement === "function" ? mapElement() : mapElement,
   );
+  /** Defaults to a viewport inside the Turku coverage extent; override per test. */
+  const getMapExtent = vi.fn((): number[] => [...TURKU_EXTENT]);
   return {
-    Map: { addLayer, addFeatureToLayer, removeAllFeaturesFromLayer, setLayerVisibility, getMapViewportElement },
+    Map: { addLayer, addFeatureToLayer, removeAllFeaturesFromLayer, setLayerVisibility, getMapViewportElement, getMapExtent },
     addLayer,
     addFeatureToLayer,
     removeAllFeaturesFromLayer,
     setLayerVisibility,
     getMapViewportElement,
+    getMapExtent,
   };
 }
 

@@ -4,9 +4,11 @@ import { SCRIPT_ID, SCRIPT_NAME } from "./constants";
 import type { DatasetStore } from "./data/dataset-store";
 import type { SignDatasetRecord } from "./data/sign-dataset-record";
 import { openSignDatasetSource } from "./data/sign-dataset-service";
+import type { BoundingBox } from "./data/bounding-box";
+import { overlapsTurkuCoverage } from "./data/turku-coverage";
 import { SettingsRepository } from "./settings/settings-repository";
 import { openSignMarkerLayer } from "./visual-overlay/sign-marker-layer";
-import { openSignPanelTab } from "./sign-panel/tab";
+import { openSignPanelTab, type SignPanelCoverage } from "./sign-panel/tab";
 import type { KeyValueStore } from "./storage/key-value-store";
 
 /** The WME page window (userscripts with grants see a sandboxed window, so callers pass the page's). */
@@ -50,10 +52,20 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
   const sdk = getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
 
   const settingsRepository = new SettingsRepository(deps.storage);
+  const markerLayer = openSignMarkerLayer({ sdk });
+  // One coverage reader for both surfaces that ask the question: the Sign
+  // Panel's notice and disabled toggle, and the render gate. The SDK hands
+  // back a GeoJSON `BBox` (a plain number[]) documented as exactly
+  // `[left, bottom, right, top]`, so the read narrows it to a Bounding Box.
+  const coverage: SignPanelCoverage = {
+    isCovered: () => overlapsTurkuCoverage(sdk.Map.getMapExtent() as BoundingBox),
+  };
   const signPanel = await openSignPanelTab({
     sdk,
     document: deps.document,
     settingsRepository,
+    layer: markerLayer,
+    coverage,
   });
   // The Client Cache is opened (and older schema versions stranded out) as
   // early as possible; the dataset itself loads on wme-ready.
@@ -61,8 +73,6 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
     store: deps.signData.datasetStore,
     fetchDataset: deps.signData.fetchDataset,
   });
-
-  const markerLayer = openSignMarkerLayer({ sdk });
 
   sdk.Events.on({
     eventName: "wme-ready",
@@ -75,15 +85,17 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
 
   /**
    * Re-applies the script's state after every wme-ready, in spec order
-   * (§4.1): register the Sign Panel, create the marker layer, re-apply the
-   * persisted visibility, then render from the Client Cache.
+   * (§4.1): the Sign Panel re-registers itself and re-applies the persisted
+   * visibility flag, then the markers render from the Client Cache — but only
+   * where the viewport overlaps the Turku coverage extent (spec §4.5).
    */
   async function onWmeReady(): Promise<void> {
-    const settings = await signPanel.refresh();
-    markerLayer.setVisible(settings.showSigns);
+    await signPanel.refresh();
     // Cache-first and non-blocking: a fresh cache renders with zero requests;
-    // a stale one renders now and swaps in the background.
+    // a stale one renders now and swaps in the background. Coverage does not
+    // gate the load — §4.3 is coverage-agnostic — only what is drawn.
     const dataset = await signDataset.load();
+    if (!coverage.isCovered()) return;
     markerLayer.render(dataset.index.signs);
   }
 }
