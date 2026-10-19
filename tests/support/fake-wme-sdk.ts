@@ -7,6 +7,7 @@ import { TURKU_EXTENT } from "../../src/constants";
 /** Events the fake SDK is allowed to hand out; anything else is a wiring mistake. */
 const SUPPORTED_EVENTS = [
   "wme-ready",
+  "wme-map-move-end",
   "wme-layer-feature-mouse-enter",
   "wme-layer-feature-mouse-leave",
 ] as const;
@@ -109,6 +110,10 @@ export function createFakeWmeSdk() {
     events: eventBus,
     emitWmeReady: () => {
       for (const handler of wmeReadyHandlers) handler(undefined);
+    },
+    /** Fires a map-move-end, as `sdk.Map` does once the user finishes panning. */
+    emitMapMoveEnd: () => {
+      eventBus.emit("wme-map-move-end", undefined);
     },
     /** Fires a layer hover event, as `sdk.Events` would for a tracked layer. */
     emitFeatureHover: (eventName: "wme-layer-feature-mouse-enter" | "wme-layer-feature-mouse-leave", payload: unknown) => {

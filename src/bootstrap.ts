@@ -1,14 +1,12 @@
 import type { WmeSDK } from "wme-sdk-typings";
 
 import { SCRIPT_ID, SCRIPT_NAME } from "./constants";
-import type { BoundingBox } from "./data/bounding-box";
 import type { DatasetStore } from "./data/dataset-store";
 import type { SignDatasetRecord } from "./data/sign-dataset-record";
 import { openSignDatasetSource } from "./data/sign-dataset-service";
-import { overlapsTurkuCoverage } from "./data/turku-coverage";
 import { SettingsRepository } from "./settings/settings-repository";
 import { openSignMarkerLayer } from "./visual-overlay/sign-marker-layer";
-import { openSignPanelTab, type SignPanelCoverage } from "./sign-panel/tab";
+import { openSignPanelTab } from "./sign-panel/tab";
 import type { KeyValueStore } from "./storage/key-value-store";
 
 /** The WME page window (userscripts with grants see a sandboxed window, so callers pass the page's). */
@@ -53,19 +51,11 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
 
   const settingsRepository = new SettingsRepository(deps.storage);
   const markerLayer = openSignMarkerLayer({ sdk });
-  // One coverage reader for both surfaces that ask the question: the Sign
-  // Panel's notice and disabled toggle, and the render gate. The SDK hands
-  // back a GeoJSON `BBox` (a plain number[]) documented as exactly
-  // `[left, bottom, right, top]`, so the read narrows it to a Bounding Box.
-  const coverage: SignPanelCoverage = {
-    isCovered: () => overlapsTurkuCoverage(sdk.Map.getMapExtent() as BoundingBox),
-  };
   const signPanel = await openSignPanelTab({
     sdk,
     document: deps.document,
     settingsRepository,
     layer: markerLayer,
-    coverage,
   });
   // The Client Cache is opened (and older schema versions stranded out) as
   // early as possible; the dataset itself loads on wme-ready.
@@ -86,16 +76,24 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
   /**
    * Re-applies the script's state after every wme-ready, in spec order
    * (§4.1): the Sign Panel re-registers itself and re-applies the persisted
-   * visibility flag, then the markers render from the Client Cache — but only
-   * where the viewport overlaps the Turku coverage extent (spec §4.5).
+   * visibility flag, then the markers render from the Client Cache.
+   *
+   * There is deliberately no coverage gate here. AC-17 asks that no signs
+   * render outside the Turku coverage extent, and that holds by geometry:
+   * ingestion pulls the whole registry through a `bbox=TURKU_EXTENT` query
+   * (src/data/turku-sign-ingestion.ts), every sign is a Point, and OL2 draws
+   * only the features inside the viewport — so a viewport that misses the
+   * extent draws nothing, whatever the layer holds. Gating registration on
+   * coverage instead would need an "entered coverage" path for sessions that
+   * start outside Turku (panning in would otherwise show an empty map), for
+   * no visible difference. Coverage is the Sign Panel's concern alone
+   * (spec §4.5).
    */
   async function onWmeReady(): Promise<void> {
     await signPanel.refresh();
     // Cache-first and non-blocking: a fresh cache renders with zero requests;
-    // a stale one renders now and swaps in the background. Coverage does not
-    // gate the load — §4.3 is coverage-agnostic — only what is drawn.
+    // a stale one renders now and swaps in the background.
     const dataset = await signDataset.load();
-    if (!coverage.isCovered()) return;
     markerLayer.render(dataset.index.signs);
   }
 }

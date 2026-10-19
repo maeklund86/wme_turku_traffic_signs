@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { WmeSDK } from "wme-sdk-typings";
 
 import { bootstrap, type SignDataDeps, type SdkHostWindow } from "../src/bootstrap";
-import { CACHE_TTL_MS, SIGN_LAYER_NAME, SIGN_PANEL_SETTINGS_KEY } from "../src/constants";
+import { CACHE_TTL_MS, SIGN_LAYER_NAME, SIGN_PANEL_SETTINGS_KEY, TURKU_EXTENT } from "../src/constants";
 import type { SignDatasetRecord } from "../src/data/sign-dataset-record";
 import type { TrafficSign } from "../src/data/traffic-sign";
 import { createMemoryStore } from "../src/storage/memory-store";
@@ -381,7 +381,7 @@ describe("Sign Panel visibility control", () => {
     });
   });
 
-  it("renders nothing and explains why outside the coverage extent (AC-17)", async () => {
+  it("explains itself outside the coverage extent, where no marker can be drawn (AC-17)", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
     const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
@@ -399,17 +399,29 @@ describe("Sign Panel visibility control", () => {
     resolveSdkInitialized();
     await started;
     fake.emitWmeReady();
-    // Let the ready handler run past the skipped render.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(fake.map.addLayer).not.toHaveBeenCalled();
-    expect(fake.map.addFeatureToLayer).not.toHaveBeenCalled();
     const pane = await paneOf(fake.registerScriptTab);
     expect(noticeOf(pane).hidden).toBe(false);
     expect(noticeOf(pane).textContent).toBe(
       "Outside Turku coverage — the sign registry only covers the City of Turku.",
     );
     expect(toggleOf(pane).disabled).toBe(true);
+    // What keeps markers off a map panned away from Turku is not a render gate:
+    // it is that every registered sign lies inside the coverage extent, so a
+    // viewport outside it draws nothing. Ingestion's bbox query guarantees it;
+    // this pins it at the layer (spec §4.5, AC-17).
+    const [minLon, minLat, maxLon, maxLat] = TURKU_EXTENT;
+    const coordinates = fake.map.addFeatureToLayer.mock.calls.map(
+      ([{ feature }]) => feature.geometry.coordinates,
+    );
+    expect(coordinates).toHaveLength(1);
+    for (const [longitude, latitude] of coordinates) {
+      expect(longitude).toBeGreaterThanOrEqual(minLon);
+      expect(longitude).toBeLessThanOrEqual(maxLon);
+      expect(latitude).toBeGreaterThanOrEqual(minLat);
+      expect(latitude).toBeLessThanOrEqual(maxLat);
+    }
   });
 
   it("toggling the checkbox issues no network requests and keeps the markers (AC-18)", async () => {

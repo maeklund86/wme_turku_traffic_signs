@@ -3,57 +3,54 @@ import { describe, expect, it, vi } from "vitest";
 import { openSignPanelTab } from "../src/sign-panel/tab";
 import { SettingsRepository } from "../src/settings/settings-repository";
 import { createMemoryStore } from "../src/storage/memory-store";
-import type { SignMarkerLayer } from "../src/visual-overlay/sign-marker-layer";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
 import { noticeOf, paneOf, toggleCheckbox, toggleOf } from "./support/sign-panel-pane";
+import { silenceConsole } from "./support/silence-console";
+
+/** A viewport around central Turku: inside the coverage extent. */
+const INSIDE_TURKU = [22.2, 60.4, 22.3, 60.5];
+/** A viewport west of Turku that misses the coverage extent entirely. */
+const OUTSIDE_TURKU = [21.5, 60.0, 22.0, 60.2];
 
 /** Stands in for the Visual Overlay; the panel only ever drives its visibility. */
 function createFakeLayer() {
   const setVisible = vi.fn();
-  const render = vi.fn();
-  return { setVisible, render, layer: { setVisible, render } as SignMarkerLayer };
-}
-
-/** Reads the persisted flag straight back, as a fresh page load would. */
-async function showSignsFlag(repository: SettingsRepository): Promise<boolean> {
-  return (await repository.load()).showSigns;
+  return { setVisible, layer: { setVisible } };
 }
 
 async function openTab(options: { covered?: boolean; repository?: SettingsRepository } = {}) {
-  const { sdk, registerScriptTab } = createFakeWmeSdk();
+  const fake = createFakeWmeSdk();
+  fake.map.getMapExtent.mockReturnValue(options.covered === false ? OUTSIDE_TURKU : INSIDE_TURKU);
   const repository = options.repository ?? new SettingsRepository(createMemoryStore());
   const layer = createFakeLayer();
-  const isCovered = vi.fn(() => options.covered ?? true);
   return {
-    sdk,
-    registerScriptTab,
+    fake,
+    registerScriptTab: fake.registerScriptTab,
     repository,
     layer,
-    isCovered,
     tab: await openSignPanelTab({
-      sdk,
+      sdk: fake.sdk,
       document: globalThis.document,
       settingsRepository: repository,
       layer: layer.layer,
-      coverage: { isCovered },
     }),
   };
 }
 
 describe("Sign Panel tab shell", () => {
   it("does not call into WME before the first wme-ready", async () => {
-    const { sdk, registerScriptTab } = createFakeWmeSdk();
+    const fake = createFakeWmeSdk();
     const layer = createFakeLayer();
 
     await openSignPanelTab({
-      sdk,
+      sdk: fake.sdk,
       document: globalThis.document,
       settingsRepository: new SettingsRepository(createMemoryStore()),
       layer: layer.layer,
-      coverage: { isCovered: () => true },
     });
 
-    expect(registerScriptTab).not.toHaveBeenCalled();
+    expect(fake.registerScriptTab).not.toHaveBeenCalled();
+    expect(fake.events.on).not.toHaveBeenCalled();
   });
 
   it("registers the script tab, its checkbox and the attribution footer on ready", async () => {
@@ -113,15 +110,6 @@ describe("Sign Panel tab shell", () => {
     expect(freshPane.querySelectorAll("input")).toHaveLength(1);
     expect(freshPane.lastElementChild?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
   });
-
-  it("re-applies the persisted visibility flag and category filter on every ready", async () => {
-    const { repository, tab } = await openTab();
-
-    await expect(tab.refresh()).resolves.toEqual({ showSigns: true, categoryFilter: null });
-
-    await repository.save({ showSigns: false, categoryFilter: ["priority"] });
-    await expect(tab.refresh()).resolves.toEqual({ showSigns: false, categoryFilter: ["priority"] });
-  });
 });
 
 describe("Sign Panel visibility control (AC-16)", () => {
@@ -134,7 +122,7 @@ describe("Sign Panel visibility control (AC-16)", () => {
     expect(layer.setVisible).toHaveBeenCalledWith(true);
   });
 
-  it("applies the persisted flag to the overlay layer on every ready", async () => {
+  it("re-reads the persisted flag on every ready and applies it", async () => {
     const { layer, repository, tab } = await openTab();
 
     await tab.refresh();
@@ -149,7 +137,7 @@ describe("Sign Panel visibility control (AC-16)", () => {
 
     await tab.refresh();
     await toggleCheckbox(await paneOf(registerScriptTab), false);
-    expect(await showSignsFlag(repository)).toBe(false);
+    expect((await repository.load()).showSigns).toBe(false);
 
     // A fresh page load: a new tab instance over the same storage reads the flag.
     const reloaded = await openTab({ repository });
@@ -159,15 +147,14 @@ describe("Sign Panel visibility control (AC-16)", () => {
     expect(toggleOf(await paneOf(reloaded.registerScriptTab)).checked).toBe(false);
   });
 
-  it("writes the flag and moves the layer without re-rendering the markers", async () => {
+  it("writes the flag to storage and moves the layer", async () => {
     const { registerScriptTab, layer, repository, tab } = await openTab();
 
     await tab.refresh();
     await toggleCheckbox(await paneOf(registerScriptTab), false);
 
     expect(layer.setVisible).toHaveBeenLastCalledWith(false);
-    expect(layer.render).not.toHaveBeenCalled();
-    expect(await showSignsFlag(repository)).toBe(false);
+    expect((await repository.load()).showSigns).toBe(false);
   });
 
   it("keeps the category filter when the visibility flag changes", async () => {
@@ -183,7 +170,7 @@ describe("Sign Panel visibility control (AC-16)", () => {
 
 describe("Sign Panel outside Turku coverage (AC-17)", () => {
   it("shows the notice, disables the toggle and leaves the map untouched", async () => {
-    const { isCovered, layer, registerScriptTab, tab } = await openTab({ covered: false });
+    const { layer, registerScriptTab, tab } = await openTab({ covered: false });
 
     await tab.refresh();
 
@@ -193,8 +180,7 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
       "Outside Turku coverage — the sign registry only covers the City of Turku.",
     );
     expect(toggleOf(pane).disabled).toBe(true);
-    expect(isCovered).toHaveBeenCalled();
-    expect(layer.setVisible).not.toHaveBeenCalled();
+    expect(layer.setVisible).toHaveBeenCalledWith(true);
   });
 
   it("hides the notice and enables the toggle inside the coverage extent", async () => {
@@ -217,5 +203,93 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
     expect(toggleOf(pane).checked).toBe(false);
     expect(toggleOf(pane).disabled).toBe(true);
     expect(noticeOf(pane).hidden).toBe(false);
+  });
+
+  it("follows the map into coverage on a map move, without touching the layer", async () => {
+    const { fake, layer, registerScriptTab, tab } = await openTab({ covered: false });
+
+    await tab.refresh();
+    const pane = await paneOf(registerScriptTab);
+    expect(noticeOf(pane).hidden).toBe(false);
+
+    // The user pans Helsinki → Turku: no wme-ready, just a finished map move.
+    fake.map.getMapExtent.mockReturnValue(INSIDE_TURKU);
+    fake.emitMapMoveEnd();
+
+    expect(noticeOf(pane).hidden).toBe(true);
+    expect(toggleOf(pane).disabled).toBe(false);
+    // Coverage never drives the layer: only the ready applied the flag, once.
+    expect(layer.setVisible).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-disables the toggle when the map pans back out", async () => {
+    const { fake, layer, registerScriptTab, tab } = await openTab();
+
+    await tab.refresh();
+    const pane = await paneOf(registerScriptTab);
+    expect(toggleOf(pane).disabled).toBe(false);
+
+    fake.map.getMapExtent.mockReturnValue(OUTSIDE_TURKU);
+    fake.emitMapMoveEnd();
+
+    expect(toggleOf(pane).disabled).toBe(true);
+    expect(noticeOf(pane).hidden).toBe(false);
+    expect(layer.setVisible).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips a pane WME has already replaced, leaving it to the next ready", async () => {
+    const { fake, registerScriptTab, tab } = await openTab();
+
+    await tab.refresh();
+    const stalePane = await paneOf(registerScriptTab);
+    stalePane.remove();
+
+    fake.map.getMapExtent.mockReturnValue(OUTSIDE_TURKU);
+    expect(() => fake.emitMapMoveEnd()).not.toThrow();
+
+    // The detached pane keeps whatever the last ready left on it.
+    expect(noticeOf(stalePane).hidden).toBe(true);
+    expect(registerScriptTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("subscribes to map moves once, however many readies fire", async () => {
+    const { fake, tab } = await openTab();
+
+    await tab.refresh();
+    await tab.refresh();
+
+    const mapMoves = fake.events.on.mock.calls.filter(
+      ([args]) => (args as { eventName: string }).eventName === "wme-map-move-end",
+    );
+    expect(mapMoves).toHaveLength(1);
+  });
+
+  it("treats an unusable extent as covered and warns once", async () => {
+    silenceConsole();
+    const { fake, registerScriptTab, tab } = await openTab();
+
+    // Not four coordinates at all.
+    fake.map.getMapExtent.mockReturnValue([22.2]);
+    await tab.refresh();
+
+    const pane = await paneOf(registerScriptTab);
+    expect(noticeOf(pane).hidden).toBe(true);
+    expect(toggleOf(pane).disabled).toBe(false);
+    expect(vi.mocked(console.warn)).toHaveBeenCalledTimes(1);
+
+    // The same broken extent on a later move must not warn again.
+    fake.emitMapMoveEnd();
+    expect(vi.mocked(console.warn)).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a non-finite coordinate as an unusable extent", async () => {
+    silenceConsole();
+    const { fake, registerScriptTab, tab } = await openTab();
+
+    fake.map.getMapExtent.mockReturnValue([22.2, 60.4, 22.3, Number.NaN]);
+    await tab.refresh();
+
+    expect(toggleOf(await paneOf(registerScriptTab)).disabled).toBe(false);
+    expect(vi.mocked(console.warn)).toHaveBeenCalledTimes(1);
   });
 });

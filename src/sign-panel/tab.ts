@@ -8,42 +8,44 @@ import {
   SIGN_VISIBILITY_LABEL_TEXT,
   SIGN_VISIBILITY_TOGGLE_CLASS,
 } from "../constants";
-import type { SettingsRepository, SignPanelSettings } from "../settings/settings-repository";
-import type { SignMarkerLayer } from "../visual-overlay/sign-marker-layer";
+import type { BoundingBox } from "../data/bounding-box";
+import { overlapsTurkuCoverage } from "../data/turku-coverage";
+import type { SettingsRepository } from "../settings/settings-repository";
 
 export interface SignPanelTabHost {
   registerScriptTab(): Promise<{ tabLabel: HTMLElement; tabPane: HTMLElement }>;
 }
 
-/**
- * Whether the map viewport overlaps the Turku coverage extent. The panel's
- * toggle and notice, and the render gate, all ask this same question, so the
- * tab and the map cannot disagree (spec §4.5).
- */
-export interface SignPanelCoverage {
-  isCovered(): boolean;
-}
-
 export interface SignPanelTabDeps {
-  sdk: { Sidebar: SignPanelTabHost };
+  /**
+   * The three SDK surfaces the panel touches: its own tab, the map-move event
+   * that re-checks coverage, and the viewport extent.
+   */
+  sdk: {
+    Sidebar: SignPanelTabHost;
+    Events: {
+      /** Re-checks coverage when the user finishes moving the map. */
+      on(args: { eventName: "wme-map-move-end"; eventHandler: () => void }): unknown;
+    };
+    Map: { getMapExtent(): number[] };
+  };
   /** The WME page document (userscript sandboxes run in an isolated world — pass the page's). */
   document: Document;
   settingsRepository: SettingsRepository;
-  /** The Visual Overlay the visibility checkbox drives (spec §4.5). */
-  layer: SignMarkerLayer;
-  coverage: SignPanelCoverage;
+  /** The Visual Overlay seam the checkbox drives — narrowed to what the panel uses (spec §4.5). */
+  layer: { setVisible(visible: boolean): void };
 }
 
 export interface SignPanelTab {
   /**
    * WME state (layers, flags) does not survive reload/logout: re-apply the
    * persisted Sign Panel state after every wme-ready. Registers the tab on
-   * the first ready, syncs the visibility checkbox from storage, applies the
-   * persisted flag to the layer, and re-reads coverage. Returns the persisted
-   * settings. Idempotent: extra calls neither re-register nor duplicate the
-   * controls or the permanent attribution footer.
+   * the first ready, applies the persisted visibility flag to the layer and
+   * re-reads coverage; coverage is then re-read on every map move for as
+   * long as the page lives. Idempotent: extra calls neither re-register nor
+   * duplicate the controls or the permanent attribution footer.
    */
-  refresh(): Promise<SignPanelSettings>;
+  refresh(): Promise<void>;
 }
 
 /** The tab's own controls, created once per registered pane. */
@@ -56,9 +58,11 @@ interface SignPanelControls {
 
 export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPanelTab> {
   let controls: SignPanelControls | null = null;
+  let subscribedToMapMoves = false;
+  let extentWarned = false;
 
   return {
-    async refresh(): Promise<SignPanelSettings> {
+    async refresh(): Promise<void> {
       // Spec order (§4.1): register the sidebar tab on wme-ready, then re-apply
       // persisted state. If WME re-rendered the pane, registerScriptTab throws
       // InvalidStateError for this scriptId — bootstrap surfaces it.
@@ -66,8 +70,8 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       ensureAttributionFooter(deps.document, tabControls.pane);
 
       const settings = await deps.settingsRepository.load();
-      applyVisibility(tabControls, settings.showSigns);
-      return settings;
+      applyFlag(tabControls, settings.showSigns);
+      applyCoverage(tabControls);
     },
   };
 
@@ -79,22 +83,76 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       registeredTab.tabLabel.textContent = SIGN_PANEL_TAB_LABEL;
       controls = buildControls(deps.document, registeredTab.tabPane, persistVisibility);
     }
+    if (!subscribedToMapMoves) {
+      // One subscription for the page's life: coverage follows the viewport, so
+      // a panel registered outside Turku explains itself the moment the map
+      // moves into it (spec §4.5). #18's list re-filters on the same event.
+      deps.sdk.Events.on({ eventName: "wme-map-move-end", eventHandler: onMapMoved });
+      subscribedToMapMoves = true;
+    }
     return controls;
   }
 
+  function onMapMoved(): void {
+    // A pane WME replaced is rebuilt by the next ready; updating a detached one
+    // would only write into a document nobody is looking at.
+    if (controls === null || !deps.document.contains(controls.pane)) return;
+    applyCoverage(controls);
+  }
+
   /**
-   * Display-only: the checkbox mirrors the persisted flag, and outside the
-   * Turku coverage extent it is disabled behind a one-line notice instead.
-   * Toggling never reads or writes the dataset (AC-18).
+   * The persisted flag, as the user last left it. Applied on every ready, and
+   * on every click — never on coverage changes: while the toggle is disabled
+   * the flag cannot change, so re-reading storage per map move would only
+   * widen the window in which a click's save could be clobbered.
    */
-  function applyVisibility(panelControls: SignPanelControls, visible: boolean): void {
-    const covered = deps.coverage.isCovered();
+  function applyFlag(panelControls: SignPanelControls, visible: boolean): void {
     panelControls.toggle.checked = visible;
+    deps.layer.setVisible(visible);
+  }
+
+  /**
+   * Coverage decides the panel's controls and nothing else: the toggle's
+   * enabled state and the notice. It never touches the layer or its markers
+   * (spec §4.5, AC-17) — see the render site in bootstrap for why that is
+   * enough.
+   */
+  function applyCoverage(panelControls: SignPanelControls): void {
+    const covered = isCovered();
     panelControls.toggle.disabled = !covered;
     panelControls.notice.hidden = covered;
-    // Outside coverage there are no signs to show, so the overlay's layer is
-    // never created and never made visible there (AC-17).
-    if (covered) deps.layer.setVisible(visible);
+  }
+
+  /**
+   * Whether the viewport overlaps the Turku coverage extent. An extent the SDK
+   * cannot hand back as four finite numbers counts as covered: every sign in
+   * the registry lies inside the extent, so the worst a broken read can do is
+   * show an enabled toggle, while counting it as uncovered would park the
+   * panel behind a notice the user cannot act on. Warned once per page load.
+   */
+  function isCovered(): boolean {
+    const viewport = viewportOrNull();
+    return viewport === null ? true : overlapsTurkuCoverage(viewport);
+  }
+
+  /** The viewport as a Bounding Box, or null when the SDK's extent is unusable. */
+  function viewportOrNull(): BoundingBox | null {
+    const [left, bottom, right, top] = deps.sdk.Map.getMapExtent();
+    if (
+      isFiniteCoordinate(left) &&
+      isFiniteCoordinate(bottom) &&
+      isFiniteCoordinate(right) &&
+      isFiniteCoordinate(top)
+    ) {
+      return [left, bottom, right, top];
+    }
+    if (!extentWarned) {
+      extentWarned = true;
+      console.warn(
+        "[turku-signs] Map extent is not four finite coordinates — treating the map as covered by Turku.",
+      );
+    }
+    return null;
   }
 
   /** Persists the flag and moves the layer; the category filter is preserved. */
@@ -106,6 +164,10 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     });
     deps.layer.setVisible(visible);
   }
+}
+
+function isFiniteCoordinate(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function buildControls(
