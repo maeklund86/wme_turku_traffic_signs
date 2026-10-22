@@ -19,6 +19,15 @@ export async function paneOf(registerScriptTab: RegisterScriptTab, index = 0): P
   return (await result.value).tabPane as HTMLElement;
 }
 
+/** Finds a Sign Panel button by its visible label. */
+export function buttonNamed(pane: HTMLElement, label: string): HTMLButtonElement {
+  const button = [...pane.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  if (!button) throw new Error(`Sign Panel button "${label}" was not rendered`);
+  return button;
+}
+
 /** The visibility checkbox the Sign Panel renders into its pane. */
 export function toggleOf(pane: HTMLElement): HTMLInputElement {
   const toggle = pane.querySelector<HTMLInputElement>(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`);

@@ -8,9 +8,18 @@ import type { SignDatasetRecord } from "../src/data/sign-dataset-record";
 import type { TrafficSign } from "../src/data/traffic-sign";
 import { createMemoryStore } from "../src/storage/memory-store";
 import type { KeyValueStore } from "../src/storage/key-value-store";
+import { SettingsRepository } from "../src/settings/settings-repository";
 import { createFakeDatasetStore } from "./support/fake-dataset-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
-import { noticeOf, paneOf, listHeaderOf, rowsOf, toggleCheckbox, toggleOf } from "./support/sign-panel-pane";
+import {
+  buttonNamed,
+  listHeaderOf,
+  noticeOf,
+  paneOf,
+  rowsOf,
+  toggleCheckbox,
+  toggleOf,
+} from "./support/sign-panel-pane";
 import { silenceConsole } from "./support/silence-console";
 import { record, sign } from "./support/turku-sign";
 
@@ -238,7 +247,7 @@ describe("userscript bootstrap", () => {
 });
 
 describe("visual overlay wiring", () => {
-  function bootWithSigns(signs: readonly TrafficSign[]) {
+  function bootWithSigns(signs: readonly TrafficSign[], storage = createMemoryStore()) {
     silenceConsole();
     const fake = createFakeWmeSdk();
     const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
@@ -247,10 +256,11 @@ describe("visual overlay wiring", () => {
       fake,
       resolveSdkInitialized,
       dataDeps,
+      storage,
       started: bootstrap({
         pageWindow,
         document: globalThis.document,
-        storage: createMemoryStore(),
+        storage,
         signData: dataDeps,
       }),
     };
@@ -279,6 +289,41 @@ describe("visual overlay wiring", () => {
     expect(features.map((feature) => feature.geometry.type)).toEqual(["Point", "Point"]);
     // WGS84 straight through: no reprojection between the registry and the map.
     expect(features[0]!.geometry.coordinates).toEqual([22.27617187661397, 60.443853785959234]);
+  });
+
+  it("filters markers from category chips and restores the saved filter on wme-ready", async () => {
+    const { fake, resolveSdkInitialized, started, storage } = bootWithSigns([
+      sign("speed", 22.25, 60.45, { signCode: "C32_2", signName: "Pysäköinti kielletty" }),
+      sign("lane-speed", 22.255, 60.45, { signCode: "C36_7" }),
+      sign("parking", 22.26, 60.45, { signCode: "C38" }),
+      sign("priority", 22.27, 60.45, { signCode: "B1" }),
+    ]);
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(4));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    fake.map.addFeatureToLayer.mockClear();
+    buttonNamed(pane, "Select none").click();
+    buttonNamed(pane, "Speed limits").click();
+
+    expect(addedFeatures(fake).map((feature) => feature.id)).toEqual(["speed", "lane-speed"]);
+    const settingsRepository = new SettingsRepository(storage);
+    await vi.waitFor(async () => {
+      expect(await settingsRepository.load()).toMatchObject({ categoryFilter: ["speed-limits"] });
+    });
+
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitWmeReady();
+    await vi.waitFor(() => {
+      const features = addedFeatures(fake);
+      expect(features.length).toBeGreaterThan(0);
+      expect(features.every((feature) => ["speed", "lane-speed"].includes(String(feature.id)))).toBe(
+        true,
+      );
+    });
   });
 
   it("re-creates the layer once and re-draws after every wme-ready", async () => {

@@ -1,6 +1,7 @@
 import type { SdkFeature, SdkFeatureStyleContext, SdkFeatureStyleRule, WmeSDK } from "wme-sdk-typings";
 
 import type { TrafficSign } from "../data/traffic-sign";
+import { filterSignsByCategories, type SignCategoryKey } from "../data/sign-categories";
 import { SIGN_LAYER_NAME } from "../constants";
 import {
   MARKER_KIND_PROPERTY,
@@ -44,7 +45,9 @@ export interface SignMarkerLayerDeps {
 export interface SignMarkerLayer {
   /** Creates the layer on first use, then re-applies the visibility flag. */
   setVisible(visible: boolean): void;
-  /** Draws one marker per sign, replacing whatever was drawn before. */
+  /** Changes which code-prefix categories render, without reloading the dataset. */
+  setCategoryFilter(categoryFilter: readonly SignCategoryKey[] | null): void;
+  /** Draws one marker per selected sign, replacing whatever was drawn before. */
   render(signs: readonly TrafficSign[]): void;
 }
 
@@ -55,8 +58,11 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     mapViewportElement: () => deps.sdk.Map.getMapViewportElement(),
   });
   let layerCreated = false;
+  let hasRendered = false;
+  let renderedSigns: readonly TrafficSign[] = [];
+  let categoryFilter: readonly SignCategoryKey[] | null = null;
 
-  return { setVisible, render };
+  return { setVisible, setCategoryFilter, render };
 
   function ensureLayer(): void {
     if (layerCreated) return;
@@ -84,12 +90,29 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     if (!visible) markerPointer.clear();
   }
 
+  function setCategoryFilter(filter: readonly SignCategoryKey[] | null): void {
+    if (sameCategoryFilter(categoryFilter, filter)) return;
+    categoryFilter = filter;
+    if (hasRendered) renderVisibleSigns();
+  }
+
   function render(signs: readonly TrafficSign[]): void {
+    renderedSigns = signs;
+    hasRendered = true;
+    renderVisibleSigns();
+  }
+
+  function renderVisibleSigns(): void {
     ensureLayer();
     // WME keeps the layer across a wme-ready, so a repeat render replaces the
     // markers instead of stacking a second set on top of the first.
     map.removeAllFeaturesFromLayer({ layerName: SIGN_LAYER_NAME });
-    for (const [position, sign] of signs.entries()) {
+    const visibleSigns =
+      categoryFilter === null
+        ? null
+        : new Set(filterSignsByCategories(renderedSigns, categoryFilter));
+    for (const [position, sign] of renderedSigns.entries()) {
+      if (visibleSigns !== null && !visibleSigns.has(sign)) continue;
       // Coordinates go straight through: the Trimble OGC API serves GeoJSON
       // Point WGS84 and the SDK speaks WGS84, so there is nothing to reproject
       // (AC-9).
@@ -108,6 +131,14 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
       });
     }
   }
+}
+
+function sameCategoryFilter(
+  left: readonly SignCategoryKey[] | null,
+  right: readonly SignCategoryKey[] | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return left.length === right.length && left.every((category, index) => category === right[index]);
 }
 
 /** One marker per sign: the registry key when present, else a position-based id. */

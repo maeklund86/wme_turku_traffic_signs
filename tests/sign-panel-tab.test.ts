@@ -17,6 +17,7 @@ import { SettingsRepository } from "../src/settings/settings-repository";
 import { createMemoryStore } from "../src/storage/memory-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
 import {
+  buttonNamed,
   fullNotesOf,
   listHeaderOf,
   noticeOf,
@@ -36,7 +37,8 @@ const OUTSIDE_TURKU = [21.5, 60.0, 22.0, 60.2];
 /** Stands in for the Visual Overlay; the panel only ever drives its visibility. */
 function createFakeLayer() {
   const setVisible = vi.fn();
-  return { setVisible, layer: { setVisible } };
+  const setCategoryFilter = vi.fn();
+  return { setVisible, setCategoryFilter, layer: { setVisible, setCategoryFilter } };
 }
 
 async function openTab(
@@ -111,13 +113,12 @@ describe("Sign Panel tab shell", () => {
     await tab.refresh();
 
     const pane = await paneOf(registerScriptTab);
-    // Rows are disclosure buttons; the footer itself stays inert and permanent.
+    // Category chips and rows are controls above the inert, permanent footer.
     const footer = pane.querySelector("footer");
     expect(footer?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
     expect(footer?.querySelector("button, a, select, textarea, [role='button']")).toBeNull();
     expect(pane.lastElementChild).toBe(footer);
     expect(pane.querySelectorAll("a, select, textarea, [role='button']")).toHaveLength(0);
-    expect([...pane.querySelectorAll("button")]).toEqual(rowsOf(pane));
     // The only input the tab owns is the visibility checkbox; list rows are
     // disclosure buttons, never inputs.
     const inputs = pane.querySelectorAll("input");
@@ -487,6 +488,40 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     expect(fullNotes.hidden).toBe(true);
     expect(row!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("filters by sign-code category and restores choice after viewport moves and ready", async () => {
+    const signs = [
+      sign("speed", 22.25, 60.45, { signCode: "C32_2", signName: "Pysäköinti kielletty" }),
+      sign("lane-speed", 22.255, 60.45, { signCode: "C36_7" }),
+      sign("parking", 22.26, 60.45, { signCode: "C38" }),
+      sign("priority", 22.27, 60.45, { signCode: "B1" }),
+    ];
+    const { fake, registerScriptTab, repository, tab } = await openTab({ signs });
+
+    await tab.refresh();
+
+    const pane = await paneOf(registerScriptTab);
+    const visibleCodes = () =>
+      rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent);
+
+    buttonNamed(pane, "Select none").click();
+    buttonNamed(pane, "Speed limits").click();
+
+    expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
+    expect(buttonNamed(pane, "Speed limits").getAttribute("aria-pressed")).toBe("true");
+    fake.emitMapMoveEnd();
+    expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
+    await vi.waitFor(async () => {
+      expect(await repository.load()).toMatchObject({ categoryFilter: ["speed-limits"] });
+    });
+
+    await tab.refresh();
+
+    expect(buttonNamed(pane, "Parking").getAttribute("aria-pressed")).toBe("false");
+    expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
+    buttonNamed(pane, "Select all").click();
+    expect(visibleCodes()).toEqual(["C32_2", "C36_7", "C38", "B1"]);
   });
 
   it("renders no note and no expansion when the registry has none (AC-21)", async () => {

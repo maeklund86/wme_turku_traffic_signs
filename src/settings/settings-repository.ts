@@ -1,4 +1,5 @@
 import { SIGN_PANEL_SETTINGS_KEY } from "../constants";
+import { isSignCategoryKey, type SignCategoryKey } from "../data/sign-categories";
 import { isPlainObject } from "../json";
 import type { KeyValueStore } from "../storage/key-value-store";
 
@@ -6,7 +7,7 @@ export interface SignPanelSettings {
   /** Visibility flag for the Visual Overlay; re-applied on every wme-ready. */
   readonly showSigns: boolean;
   /** Selected Sign Category keys; null means no filter (all categories). */
-  readonly categoryFilter: readonly string[] | null;
+  readonly categoryFilter: readonly SignCategoryKey[] | null;
 }
 
 export const DEFAULT_SIGN_PANEL_SETTINGS: SignPanelSettings = {
@@ -53,10 +54,13 @@ function parseSettings(raw: string | null): SignPanelSettings {
   };
 }
 
-function parseCategoryFilter(value: unknown): readonly string[] | null {
+function parseCategoryFilter(value: unknown): readonly SignCategoryKey[] | null {
   if (value === null) return null;
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
-    return DEFAULT_SIGN_PANEL_SETTINGS.categoryFilter;
+  if (!Array.isArray(value)) return DEFAULT_SIGN_PANEL_SETTINGS.categoryFilter;
+  const categories: SignCategoryKey[] = [];
+  for (const entry of value) {
+    if (!isSignCategoryKey(entry)) return DEFAULT_SIGN_PANEL_SETTINGS.categoryFilter;
+    categories.push(entry);
   }
-  return value;
+  return categories;
 }

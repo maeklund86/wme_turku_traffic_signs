@@ -1,4 +1,9 @@
 import {
+  SIGN_CATEGORY_CHIP_CLASS,
+  SIGN_CATEGORY_CHIPS_CLASS,
+  SIGN_CATEGORY_FILTER_ACTION_CLASS,
+  SIGN_CATEGORY_FILTER_ACTIONS_CLASS,
+  SIGN_CATEGORY_FILTER_CLASS,
   SIGN_LIST_CLASS,
   SIGN_LIST_HEADER_CLASS,
   SIGN_PANEL_CONTENT_CLASS,
@@ -29,6 +34,23 @@ const STYLE_ELEMENT_ID = "turku-signs-sign-panel-styles";
  * `aria-expanded` state that follows it.
  */
 const SIGN_PANEL_CSS = `
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_CLASS} { margin: 0 0 8px; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_CLASS} > summary { cursor: pointer; font-weight: 600; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_ACTIONS_CLASS},
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_CHIPS_CLASS} { display: flex; flex-wrap: wrap; gap: 4px; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_ACTIONS_CLASS} { margin: 4px 0; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_ACTION_CLASS},
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_CHIP_CLASS} {
+  padding: 2px 8px;
+  border: 1px solid #888888;
+  border-radius: 999px;
+  background: #ffffff;
+  cursor: pointer;
+}
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_CHIP_CLASS}[aria-pressed="true"] {
+  border-color: #466080;
+  background: #dce7f5;
+}
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_LIST_CLASS} { list-style: none; margin: 0; padding: 0; }
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_LIST_HEADER_CLASS} { margin: 8px 0 4px; font-weight: bold; }
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_ROW_CLASS} {

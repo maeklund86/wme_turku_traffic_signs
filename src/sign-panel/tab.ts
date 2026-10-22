@@ -10,9 +10,15 @@ import {
   SIGN_VISIBILITY_TOGGLE_CLASS,
 } from "../constants";
 import type { BoundingBox } from "../data/bounding-box";
+import { filterSignsByCategories, type SignCategoryKey } from "../data/sign-categories";
 import type { SpatialIndex } from "../data/spatial-index";
 import { overlapsTurkuCoverage } from "../data/turku-coverage";
-import type { SettingsRepository } from "../settings/settings-repository";
+import {
+  DEFAULT_SIGN_PANEL_SETTINGS,
+  type SettingsRepository,
+  type SignPanelSettings,
+} from "../settings/settings-repository";
+import { openSignCategoryFilter, type SignCategoryFilter } from "./category-filter";
 import { openSignList, type SignList } from "./sign-list";
 import { ensureSignPanelStyles } from "./styles";
 
@@ -36,8 +42,11 @@ export interface SignPanelTabDeps {
   /** The WME page document (userscript sandboxes run in an isolated world — pass the page's). */
   document: Document;
   settingsRepository: SettingsRepository;
-  /** The Visual Overlay seam the checkbox drives — narrowed to what the panel uses (spec §4.5). */
-  layer: { setVisible(visible: boolean): void };
+  /** The Visual Overlay state driven by Sign Panel controls (spec §4.5). */
+  layer: {
+    setVisible(visible: boolean): void;
+    setCategoryFilter(categoryFilter: readonly SignCategoryKey[] | null): void;
+  };
   /**
    * The in-memory spatial index the viewport list filters against (spec §4.5).
    * Read live rather than captured: the dataset resolves after the panel is
@@ -49,11 +58,10 @@ export interface SignPanelTabDeps {
 export interface SignPanelTab {
   /**
    * WME state (layers, flags) does not survive reload/logout: re-apply the
-   * persisted Sign Panel state after every wme-ready. Registers the tab on
-   * the first ready, applies the persisted visibility flag to the layer and
-   * re-reads coverage; coverage is then re-read on every map move for as
-   * long as the page lives. Idempotent: extra calls neither re-register nor
-   * duplicate the controls or the permanent attribution footer.
+   * persisted visibility and Sign Category filters after every wme-ready.
+   * Registers the tab on the first ready, re-reads coverage, and keeps coverage
+   * current on map moves. Idempotent: extra calls neither re-register nor
+   * duplicate controls or the permanent attribution footer.
    */
   refresh(): Promise<void>;
   /**
@@ -72,6 +80,7 @@ interface SignPanelControls {
   pane: HTMLElement;
   toggle: HTMLInputElement;
   notice: HTMLElement;
+  categoryFilter: SignCategoryFilter;
   list: SignList;
 }
 
@@ -79,6 +88,8 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   let controls: SignPanelControls | null = null;
   let subscribedToMapMoves = false;
   let invalidViewportWarned = false;
+  let currentSettings: SignPanelSettings = DEFAULT_SIGN_PANEL_SETTINGS;
+  let settingsWriteQueue: Promise<void> = Promise.resolve();
 
   return {
     async refresh(): Promise<void> {
@@ -88,8 +99,9 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       const tabControls = await ensureControls();
       ensureAttributionFooter(deps.document, tabControls.pane);
 
-      const settings = await deps.settingsRepository.load();
-      applyFlag(tabControls, settings.showSigns);
+      currentSettings = await deps.settingsRepository.load();
+      applyFlag(tabControls, currentSettings.showSigns);
+      applyCategoryFilter(tabControls, currentSettings.categoryFilter);
       applyCoverage(tabControls);
       applySignList(tabControls);
     },
@@ -108,7 +120,12 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       ensureSignPanelStyles(deps.document);
       const registeredTab = await deps.sdk.Sidebar.registerScriptTab();
       registeredTab.tabLabel.textContent = SIGN_PANEL_TAB_LABEL;
-      controls = buildControls(deps.document, registeredTab.tabPane, persistVisibility);
+      controls = buildControls(
+        deps.document,
+        registeredTab.tabPane,
+        persistVisibility,
+        persistCategoryFilter,
+      );
     }
     if (!subscribedToMapMoves) {
       // One subscription for the page's life: coverage follows the viewport, and
@@ -147,6 +164,14 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     deps.layer.setVisible(visible);
   }
 
+  function applyCategoryFilter(
+    panelControls: SignPanelControls,
+    categoryFilter: readonly SignCategoryKey[] | null,
+  ): void {
+    panelControls.categoryFilter.setSelected(categoryFilter);
+    deps.layer.setCategoryFilter(categoryFilter);
+  }
+
   /**
    * Coverage decides the panel's controls and nothing else: the toggle's
    * enabled state and the notice. It never touches the layer or its markers
@@ -163,8 +188,8 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
    * The viewport-driven list: exactly the signs inside the current viewport,
    * counted in the header (spec §4.5, AC-20). The query runs against the
    * in-memory spatial index, so a re-filter costs no request and is never
-   * debounced — the viewport is the only input. The visibility checkbox only
-   * controls the map layer; it does not filter this spatial result list.
+   * debounced — the viewport is the only spatial input. Sign Categories filter
+   * the same code-prefix groups in both the list and the Visual Overlay.
    */
   function applySignList(panelControls: SignPanelControls): void {
     const viewport = viewportOrNull();
@@ -175,7 +200,12 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       panelControls.list.markUnavailable();
       return;
     }
-    panelControls.list.render(deps.spatialIndex.current().query(viewport));
+    panelControls.list.render(
+      filterSignsByCategories(
+        deps.spatialIndex.current().query(viewport),
+        currentSettings.categoryFilter,
+      ),
+    );
   }
 
   /**
@@ -210,14 +240,33 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     return null;
   }
 
-  /** Persists the flag and moves the layer; the category filter is preserved. */
-  async function persistVisibility(visible: boolean): Promise<void> {
-    const current = await deps.settingsRepository.load();
-    await deps.settingsRepository.save({
-      showSigns: visible,
-      categoryFilter: current.categoryFilter,
+  /** Queues whole-settings writes so rapid control changes cannot overwrite each other. */
+  function saveSettings(settings: SignPanelSettings): Promise<void> {
+    const snapshot: SignPanelSettings = {
+      ...settings,
+      categoryFilter:
+        settings.categoryFilter === null ? null : [...settings.categoryFilter],
+    };
+    settingsWriteQueue = settingsWriteQueue
+      .catch(() => undefined)
+      .then(() => deps.settingsRepository.save(snapshot));
+    return settingsWriteQueue;
+  }
+
+  /** Persists the visibility flag while preserving current category selection. */
+  function persistVisibility(visible: boolean): Promise<void> {
+    currentSettings = { ...currentSettings, showSigns: visible };
+    return saveSettings(currentSettings).then(() => deps.layer.setVisible(visible));
+  }
+
+  /** Applies category selection immediately, then persists it with visibility state. */
+  function persistCategoryFilter(categoryFilter: readonly SignCategoryKey[] | null): void {
+    currentSettings = { ...currentSettings, categoryFilter };
+    deps.layer.setCategoryFilter(categoryFilter);
+    withAttachedControls(applySignList);
+    void saveSettings(currentSettings).catch((error: unknown) => {
+      console.error("[turku-signs] Failed to persist Sign Category filter", error);
     });
-    deps.layer.setVisible(visible);
   }
 }
 
@@ -229,9 +278,12 @@ function buildControls(
   document: Document,
   pane: HTMLElement,
   onVisibilityChange: (visible: boolean) => Promise<void>,
+  onCategoryFilterChange: (categoryFilter: readonly SignCategoryKey[] | null) => void,
 ): SignPanelControls {
   const content = document.createElement("div");
   content.className = SIGN_PANEL_CONTENT_CLASS;
+
+  const categoryFilter = openSignCategoryFilter(document, onCategoryFilterChange);
 
   const container = document.createElement("div");
   container.className = SIGN_VISIBILITY_CLASS;
@@ -248,7 +300,7 @@ function buildControls(
   notice.hidden = true;
 
   container.append(label, notice);
-  content.append(container);
+  content.append(categoryFilter.element, container);
 
   // Below the visibility block, above the permanent footer (which refresh()
   // appends last): the list is the tab's main content, not a control of its own.
@@ -261,7 +313,7 @@ function buildControls(
     });
   });
 
-  return { pane, toggle, notice, list };
+  return { pane, toggle, notice, categoryFilter, list };
 }
 
 /**
