@@ -1,11 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { openSignPanelTab } from "../src/sign-panel/tab";
+import { buildSpatialIndex } from "../src/data/spatial-index";
+import type { TrafficSign } from "../src/data/traffic-sign";
+import { officialSignIconUrl } from "../src/visual-overlay/sign-icon";
 import { SettingsRepository } from "../src/settings/settings-repository";
 import { createMemoryStore } from "../src/storage/memory-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
-import { noticeOf, paneOf, toggleCheckbox, toggleOf } from "./support/sign-panel-pane";
+import {
+  fullNotesOf,
+  listHeaderOf,
+  noticeOf,
+  paneOf,
+  rowsOf,
+  toggleCheckbox,
+  toggleOf,
+} from "./support/sign-panel-pane";
 import { silenceConsole } from "./support/silence-console";
+import { sign } from "./support/turku-sign";
 
 /** A viewport around central Turku: inside the coverage extent. */
 const INSIDE_TURKU = [22.2, 60.4, 22.3, 60.5];
@@ -18,21 +30,34 @@ function createFakeLayer() {
   return { setVisible, layer: { setVisible } };
 }
 
-async function openTab(options: { covered?: boolean; repository?: SettingsRepository } = {}) {
+async function openTab(
+  options: {
+    covered?: boolean;
+    repository?: SettingsRepository;
+    /** The active dataset's signs, indexed as the dataset source indexes them. */
+    signs?: readonly TrafficSign[];
+  } = {},
+) {
   const fake = createFakeWmeSdk();
   fake.map.getMapExtent.mockReturnValue(options.covered === false ? OUTSIDE_TURKU : INSIDE_TURKU);
   const repository = options.repository ?? new SettingsRepository(createMemoryStore());
   const layer = createFakeLayer();
+  let activeSigns = options.signs ?? [];
   return {
     fake,
     registerScriptTab: fake.registerScriptTab,
     repository,
     layer,
+    /** Swaps the active dataset in, as an ingest does after the panel opened. */
+    setActiveSigns: (signs: readonly TrafficSign[]) => {
+      activeSigns = signs;
+    },
     tab: await openSignPanelTab({
       sdk: fake.sdk,
       document: globalThis.document,
       settingsRepository: repository,
       layer: layer.layer,
+      spatialIndex: { current: () => buildSpatialIndex(activeSigns) },
     }),
   };
 }
@@ -47,6 +72,7 @@ describe("Sign Panel tab shell", () => {
       document: globalThis.document,
       settingsRepository: new SettingsRepository(createMemoryStore()),
       layer: layer.layer,
+      spatialIndex: { current: () => buildSpatialIndex([]) },
     });
 
     expect(fake.registerScriptTab).not.toHaveBeenCalled();
@@ -70,15 +96,19 @@ describe("Sign Panel tab shell", () => {
     expect(pane.lastElementChild?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
   });
 
-  it("has no dismiss control anywhere in the tab (footer is permanent)", async () => {
-    const { registerScriptTab, tab } = await openTab();
+  it("has no control inside the permanent footer (nothing can dismiss it)", async () => {
+    const { registerScriptTab, tab } = await openTab({ signs: [sign("1", 22.25, 60.45)] });
 
     await tab.refresh();
 
     const pane = await paneOf(registerScriptTab);
-    const dismissControls = pane.querySelectorAll("button, a, select, textarea, [role='button']");
-    expect(dismissControls).toHaveLength(0);
-    // The one input the tab owns is the visibility checkbox.
+    // Rows are disclosure buttons; the footer itself stays inert and permanent.
+    const footer = pane.querySelector("footer");
+    expect(footer?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
+    expect(footer?.querySelector("button, a, select, textarea, [role='button']")).toBeNull();
+    expect(pane.lastElementChild).toBe(footer);
+    // The only input the tab owns is the visibility checkbox; list rows are
+    // disclosure buttons, never inputs.
     const inputs = pane.querySelectorAll("input");
     expect(inputs).toHaveLength(1);
     expect(inputs[0]!.className).toBe("turku-signs-visibility-toggle");
@@ -291,5 +321,155 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
 
     expect(toggleOf(await paneOf(registerScriptTab)).disabled).toBe(false);
     expect(vi.mocked(console.warn)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
+  /** Inside the INSIDE_TURKU viewport. */
+  const NEARBY = sign("nearby", 22.25, 60.45);
+  /** Also inside the INSIDE_TURKU viewport. */
+  const OTHER = sign("other", 22.28, 60.42);
+  /** Well east of it, so no extent the panel sees contains it. */
+  const FAR_AWAY = sign("far", 23.5, 61.0);
+
+  it("counts the signs inside the extent and re-filters on a finished map move", async () => {
+    const { fake, registerScriptTab, tab } = await openTab({ signs: [NEARBY, OTHER, FAR_AWAY] });
+
+    await tab.refresh();
+
+    const pane = await paneOf(registerScriptTab);
+    expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
+    expect(rowsOf(pane).map((row) => row.querySelector(".turku-signs-row-name")!.textContent)).toEqual([
+      "C38 Pysäköinti kielletty",
+      "C38 Pysäköinti kielletty",
+    ]);
+
+    // The user zooms in: no wme-ready, just a finished map move.
+    fake.map.getMapExtent.mockReturnValue([22.24, 60.44, 22.26, 60.46]);
+    fake.emitMapMoveEnd();
+
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+    expect(rowsOf(pane)).toHaveLength(1);
+    // The single row is still a row of this pane's list — nothing was replaced.
+    expect(rowsOf(pane)[0]!.parentElement!.parentElement!.parentElement).toBe(pane);
+  });
+
+  it("shows the zero count when the viewport misses every sign", async () => {
+    const { registerScriptTab, tab } = await openTab({ signs: [FAR_AWAY] });
+
+    await tab.refresh();
+
+    const pane = await paneOf(registerScriptTab);
+    expect(listHeaderOf(pane).textContent).toBe("0 signs in view");
+    expect(rowsOf(pane)).toHaveLength(0);
+  });
+
+  it("re-reads the active dataset on a map move, as an ingest swap leaves it", async () => {
+    const { fake, registerScriptTab, setActiveSigns, tab } = await openTab({ signs: [NEARBY] });
+
+    await tab.refresh();
+    const pane = await paneOf(registerScriptTab);
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+
+    setActiveSigns([NEARBY, OTHER]);
+    fake.emitMapMoveEnd();
+
+    expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
+  });
+
+  it("refreshes the list after a dataset swap without a ready or a map move", async () => {
+    const { registerScriptTab, setActiveSigns, tab } = await openTab();
+
+    await tab.refresh();
+    const pane = await paneOf(registerScriptTab);
+    expect(listHeaderOf(pane).textContent).toBe("0 signs in view");
+
+    // The dataset resolves after the ready rendered the list from an empty index.
+    setActiveSigns([NEARBY, OTHER]);
+    tab.refreshSignList();
+
+    expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
+    expect(rowsOf(pane)).toHaveLength(2);
+  });
+
+  it("renders the official icon, the code and the verbatim Finnish name (AC-24)", async () => {
+    const { registerScriptTab, tab } = await openTab({
+      signs: [sign("nearby", 22.25, 60.45, { signName: "C38 Pysäköinti kielletty" })],
+    });
+
+    await tab.refresh();
+
+    const [row] = rowsOf(await paneOf(registerScriptTab));
+    expect(row!.querySelector("img")!.src).toBe(officialSignIconUrl("C38"));
+    expect(row!.querySelector(".turku-signs-row-code")!.textContent).toBe("C38");
+    expect(row!.querySelector(".turku-signs-row-name")!.textContent).toBe("C38 Pysäköinti kielletty");
+  });
+
+  it("draws the code plate for a code the pinned collection has no SVG for", async () => {
+    const { registerScriptTab, tab } = await openTab({
+      signs: [sign("nearby", 22.25, 60.45, { signCode: "ZZ99" })],
+    });
+
+    await tab.refresh();
+
+    const [row] = rowsOf(await paneOf(registerScriptTab));
+    expect(row!.querySelector("img")!.src).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+  });
+
+  it("expands a row inline to the full note, keeping the list in place", async () => {
+    const note = "Pysäköinti kielletty — katualueella, poikkeus poliisin luvalla";
+    const { registerScriptTab, tab } = await openTab({
+      signs: [sign("nearby", 22.25, 60.45, { notes: note })],
+    });
+
+    await tab.refresh();
+
+    const pane = await paneOf(registerScriptTab);
+    const [row] = rowsOf(pane);
+    expect(row!.querySelector(".turku-signs-row-notes")!.textContent).toBe(note);
+
+    const fullNotes = fullNotesOf(row!);
+    expect(fullNotes.textContent).toBe(note);
+    expect(fullNotes.hidden).toBe(true);
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
+
+    row!.click();
+
+    expect(row!.getAttribute("aria-expanded")).toBe("true");
+    expect(fullNotes.hidden).toBe(false);
+    // Inline disclosure: the list itself neither moves nor replaces itself.
+    expect(pane.contains(fullNotes)).toBe(true);
+    expect(rowsOf(pane)).toHaveLength(1);
+
+    row!.click();
+
+    expect(fullNotes.hidden).toBe(true);
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("renders no note and no expansion when the registry has none (AC-21)", async () => {
+    const { registerScriptTab, tab } = await openTab({ signs: [NEARBY] });
+
+    await tab.refresh();
+
+    const [row] = rowsOf(await paneOf(registerScriptTab));
+    expect(row!.querySelector(".turku-signs-row-notes")).toBeNull();
+    row!.click();
+    expect(row!.parentElement!.querySelector(".turku-signs-row-notes-full")).toBeNull();
+  });
+
+  it("keeps the list as it was when the extent is unusable", async () => {
+    silenceConsole();
+    const { fake, registerScriptTab, tab } = await openTab({ signs: [NEARBY, OTHER] });
+
+    await tab.refresh();
+    const pane = await paneOf(registerScriptTab);
+    expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
+
+    fake.map.getMapExtent.mockReturnValue([22.2]);
+    fake.emitMapMoveEnd();
+
+    expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
+    expect(rowsOf(pane)).toHaveLength(2);
   });
 });

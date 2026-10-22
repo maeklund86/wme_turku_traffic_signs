@@ -1,6 +1,13 @@
 import { vi } from "vitest";
 
-import { OUTSIDE_TURKU_COVERAGE_CLASS, SIGN_VISIBILITY_TOGGLE_CLASS } from "../../src/constants";
+import {
+  OUTSIDE_TURKU_COVERAGE_CLASS,
+  SIGN_LIST_HEADER_CLASS,
+  SIGN_LIST_CLASS,
+  SIGN_ROW_CLASS,
+  SIGN_ROW_NOTES_FULL_CLASS,
+  SIGN_VISIBILITY_TOGGLE_CLASS,
+} from "../../src/constants";
 
 /** The `registerScriptTab` spy `createFakeWmeSdk` hands out. */
 type RegisterScriptTab = ReturnType<typeof vi.fn>;
@@ -33,4 +40,23 @@ export async function toggleCheckbox(pane: HTMLElement, checked: boolean): Promi
   toggle.dispatchEvent(new Event("change", { bubbles: true }));
   // The handler persists asynchronously; let it settle before asserting.
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** The viewport list's count header ("N signs in view"). */
+export function listHeaderOf(pane: HTMLElement): HTMLElement {
+  const header = pane.querySelector<HTMLElement>(`.${SIGN_LIST_HEADER_CLASS}`);
+  if (!header) throw new Error("the sign list header was never rendered");
+  return header;
+}
+
+/** The rendered list rows (the expand/disclosure buttons), in display order. */
+export function rowsOf(pane: HTMLElement): HTMLButtonElement[] {
+  return [...pane.querySelectorAll<HTMLButtonElement>(`.${SIGN_LIST_CLASS} .${SIGN_ROW_CLASS}`)];
+}
+
+/** The full-note block a row expands to; throws when the row has no note. */
+export function fullNotesOf(row: HTMLButtonElement): HTMLElement {
+  const notes = row.parentElement?.querySelector<HTMLElement>(`.${SIGN_ROW_NOTES_FULL_CLASS}`);
+  if (!notes) throw new Error("the row has no full-notes block");
+  return notes;
 }

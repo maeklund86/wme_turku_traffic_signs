@@ -10,7 +10,7 @@ import { createMemoryStore } from "../src/storage/memory-store";
 import type { KeyValueStore } from "../src/storage/key-value-store";
 import { createFakeDatasetStore } from "./support/fake-dataset-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
-import { noticeOf, paneOf, toggleCheckbox, toggleOf } from "./support/sign-panel-pane";
+import { noticeOf, paneOf, listHeaderOf, rowsOf, toggleCheckbox, toggleOf } from "./support/sign-panel-pane";
 import { silenceConsole } from "./support/silence-console";
 import { record, sign } from "./support/turku-sign";
 
@@ -454,5 +454,71 @@ describe("Sign Panel visibility control", () => {
     expect(dataDeps.datasetStore.write).not.toHaveBeenCalled();
     expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1);
     expect(fake.map.removeAllFeaturesFromLayer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("viewport-driven sign list wiring (AC-20)", () => {
+  it("fills the list from the loaded dataset, with the in-view count in the header", async () => {
+    silenceConsole();
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage: createMemoryStore(),
+      signData: createFakeDataDeps({
+        record: record("2026-10-11T19:50:25.6808150Z", NOW, [
+          sign("1", 22.2, 60.4),
+          sign("2", 22.3, 60.5),
+          // East of the default test extent: a marker, but never a list row.
+          sign("far", 23.5, 61.0),
+        ]),
+      }),
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(3));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    // Two of the three drawn markers lie inside the extent, and the load may
+    // resolve after the ready rendered the list from an empty index.
+    await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("2 signs in view"));
+    expect(rowsOf(pane)).toHaveLength(2);
+    // The permanent footer still closes the pane, list included.
+    expect(pane.lastElementChild?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
+  });
+
+  it("shows the zero count until the dataset resolves, then fills in", async () => {
+    silenceConsole();
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const datasetStore = createFakeDatasetStore({ record: null });
+    let resolveFetch!: (value: SignDatasetRecord) => void;
+    const fetchDataset = vi.fn(
+      () =>
+        new Promise<SignDatasetRecord>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage: createMemoryStore(),
+      signData: { datasetStore, fetchDataset },
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.registerScriptTab).toHaveBeenCalledTimes(1));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("0 signs in view"));
+
+    resolveFetch(TURKU_RECORD);
+    await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("1 sign in view"));
+    expect(rowsOf(pane)).toHaveLength(1);
   });
 });

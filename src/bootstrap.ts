@@ -51,17 +51,20 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
 
   const settingsRepository = new SettingsRepository(deps.storage);
   const markerLayer = openSignMarkerLayer({ sdk });
-  const signPanel = await openSignPanelTab({
-    sdk,
-    document: deps.document,
-    settingsRepository,
-    layer: markerLayer,
-  });
   // The Client Cache is opened (and older schema versions stranded out) as
   // early as possible; the dataset itself loads on wme-ready.
   const signDataset = await openSignDatasetSource({
     store: deps.signData.datasetStore,
     fetchDataset: deps.signData.fetchDataset,
+  });
+  const signPanel = await openSignPanelTab({
+    sdk,
+    document: deps.document,
+    settingsRepository,
+    layer: markerLayer,
+    // The list reads the active index live, so it starts empty before the
+    // first load and follows every later swap (spec §4.5).
+    spatialIndex: { current: () => signDataset.current().index },
   });
 
   sdk.Events.on({
@@ -95,5 +98,8 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
     // a stale one renders now and swaps in the background.
     const dataset = await signDataset.load();
     markerLayer.render(dataset.index.signs);
+    // The ready rendered the list against whatever the index held then; the
+    // load may have just swapped a whole dataset in (spec §4.5, AC-20).
+    signPanel.refreshSignList();
   }
 }

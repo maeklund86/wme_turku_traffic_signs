@@ -22,6 +22,23 @@ export const OUTSIDE_TURKU_COVERAGE_TEXT =
 export const OUTSIDE_TURKU_COVERAGE_CLASS = "turku-signs-outside-coverage";
 
 /**
+ * The viewport-driven sign list (spec §4.5): a count header over one row per
+ * sign inside the extent, each row expanding inline to its full notes.
+ */
+export const SIGN_LIST_CLASS = "turku-signs-list";
+export const SIGN_LIST_HEADER_CLASS = "turku-signs-list-header";
+export const SIGN_ROW_CLASS = "turku-signs-row";
+export const SIGN_ROW_ICON_CLASS = "turku-signs-row-icon";
+export const SIGN_ROW_CODE_CLASS = "turku-signs-row-code";
+/** Column holding the name, the notes preview, or neither. */
+export const SIGN_ROW_BODY_CLASS = "turku-signs-row-body";
+export const SIGN_ROW_NAME_CLASS = "turku-signs-row-name";
+/** The one-line, ellipsised notes preview; absent when the sign has none. */
+export const SIGN_ROW_NOTES_CLASS = "turku-signs-row-notes";
+/** The full notes a row expands to; absent when the sign has none. */
+export const SIGN_ROW_NOTES_FULL_CLASS = "turku-signs-row-notes-full";
+
+/**
  * Commit SHA the official sign SVGs are pinned to inside the asset URL
  * (AC-14). jsDelivr resolves the SHA, so the rendered icons never change when
  * the upstream repository's `main` moves.

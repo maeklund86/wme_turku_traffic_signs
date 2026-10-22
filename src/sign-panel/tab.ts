@@ -9,8 +9,11 @@ import {
   SIGN_VISIBILITY_TOGGLE_CLASS,
 } from "../constants";
 import type { BoundingBox } from "../data/bounding-box";
+import type { SpatialIndex } from "../data/spatial-index";
 import { overlapsTurkuCoverage } from "../data/turku-coverage";
 import type { SettingsRepository } from "../settings/settings-repository";
+import { openSignList, type SignList } from "./sign-list";
+import { ensureSignPanelStyles } from "./styles";
 
 export interface SignPanelTabHost {
   registerScriptTab(): Promise<{ tabLabel: HTMLElement; tabPane: HTMLElement }>;
@@ -34,6 +37,12 @@ export interface SignPanelTabDeps {
   settingsRepository: SettingsRepository;
   /** The Visual Overlay seam the checkbox drives — narrowed to what the panel uses (spec §4.5). */
   layer: { setVisible(visible: boolean): void };
+  /**
+   * The in-memory spatial index the viewport list filters against (spec §4.5).
+   * Read live rather than captured: the dataset resolves after the panel is
+   * opened, and every refresh and map move re-reads whatever is active then.
+   */
+  spatialIndex: { current(): SpatialIndex };
 }
 
 export interface SignPanelTab {
@@ -46,6 +55,14 @@ export interface SignPanelTab {
    * duplicate the controls or the permanent attribution footer.
    */
   refresh(): Promise<void>;
+  /**
+   * Re-filters the viewport-driven sign list against the in-memory spatial
+   * index and re-renders it (spec §4.5, AC-20). The tab already does this on
+   * every wme-ready and map move; bootstrap calls it after a dataset swap
+   * resolves later still — an ingest finishing after the ready left the list
+   * reading the previous index.
+   */
+  refreshSignList(): void;
 }
 
 /** The tab's own controls, created once per registered pane. */
@@ -54,6 +71,7 @@ interface SignPanelControls {
   pane: HTMLElement;
   toggle: HTMLInputElement;
   notice: HTMLElement;
+  list: SignList;
 }
 
 export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPanelTab> {
@@ -72,6 +90,14 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       const settings = await deps.settingsRepository.load();
       applyFlag(tabControls, settings.showSigns);
       applyCoverage(tabControls);
+      applySignList(tabControls);
+    },
+
+    refreshSignList(): void {
+      // The list belongs to the pane the last ready registered; one WME has
+      // replaced is rebuilt (and re-populated) by the next ready.
+      if (controls === null || !deps.document.contains(controls.pane)) return;
+      applySignList(controls);
     },
   };
 
@@ -79,14 +105,15 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   async function ensureControls(): Promise<SignPanelControls> {
     const paneDetached = controls !== null && !deps.document.contains(controls.pane);
     if (controls === null || paneDetached) {
+      ensureSignPanelStyles(deps.document);
       const registeredTab = await deps.sdk.Sidebar.registerScriptTab();
       registeredTab.tabLabel.textContent = SIGN_PANEL_TAB_LABEL;
       controls = buildControls(deps.document, registeredTab.tabPane, persistVisibility);
     }
     if (!subscribedToMapMoves) {
-      // One subscription for the page's life: coverage follows the viewport, so
-      // a panel registered outside Turku explains itself the moment the map
-      // moves into it (spec §4.5). #18's list re-filters on the same event.
+      // One subscription for the page's life: coverage follows the viewport, and
+      // so does the sign list — both re-filter off the finished map move, with
+      // zero requests and no debounce (spec §4.5, AC-20).
       deps.sdk.Events.on({ eventName: "wme-map-move-end", eventHandler: onMapMoved });
       subscribedToMapMoves = true;
     }
@@ -98,6 +125,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     // would only write into a document nobody is looking at.
     if (controls === null || !deps.document.contains(controls.pane)) return;
     applyCoverage(controls);
+    applySignList(controls);
   }
 
   /**
@@ -121,6 +149,21 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     const covered = isCovered();
     panelControls.toggle.disabled = !covered;
     panelControls.notice.hidden = covered;
+  }
+
+  /**
+   * The viewport-driven list: exactly the signs inside the current extent,
+   * counted in the header (spec §4.5, AC-20). The query runs against the
+   * in-memory spatial index, so a re-filter costs no request and is never
+   * debounced — the extent is the only input.
+   */
+  function applySignList(panelControls: SignPanelControls): void {
+    const viewport = viewportOrNull();
+    // An unusable extent was already warned about, once, by the coverage read
+    // on the same event: with no trustworthy bounds the list keeps whatever
+    // the last usable extent left in it rather than claiming an empty view.
+    if (viewport === null) return;
+    panelControls.list.render(deps.spatialIndex.current().query(viewport));
   }
 
   /**
@@ -192,13 +235,17 @@ function buildControls(
   container.append(label, notice);
   pane.append(container);
 
+  // Below the visibility block, above the permanent footer (which refresh()
+  // appends last): the list is the tab's main content, not a control of its own.
+  const list = openSignList(document, pane);
+
   toggle.addEventListener("change", () => {
     void onVisibilityChange(toggle.checked).catch((error: unknown) => {
       console.error("[turku-signs] Failed to persist the visibility flag", error);
     });
   });
 
-  return { pane, toggle, notice };
+  return { pane, toggle, notice, list };
 }
 
 /**
