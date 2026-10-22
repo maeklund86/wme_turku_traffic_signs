@@ -3,6 +3,7 @@ import {
   ATTRIBUTION_TEXT,
   OUTSIDE_TURKU_COVERAGE_CLASS,
   OUTSIDE_TURKU_COVERAGE_TEXT,
+  SIGN_PANEL_CONTENT_CLASS,
   SIGN_PANEL_TAB_LABEL,
   SIGN_VISIBILITY_CLASS,
   SIGN_VISIBILITY_LABEL_TEXT,
@@ -22,7 +23,7 @@ export interface SignPanelTabHost {
 export interface SignPanelTabDeps {
   /**
    * The three SDK surfaces the panel touches: its own tab, the map-move event
-   * that re-checks coverage, and the viewport extent.
+   * that re-checks coverage, and the viewport bounds.
    */
   sdk: {
     Sidebar: SignPanelTabHost;
@@ -77,7 +78,7 @@ interface SignPanelControls {
 export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPanelTab> {
   let controls: SignPanelControls | null = null;
   let subscribedToMapMoves = false;
-  let extentWarned = false;
+  let invalidViewportWarned = false;
 
   return {
     async refresh(): Promise<void> {
@@ -96,8 +97,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     refreshSignList(): void {
       // The list belongs to the pane the last ready registered; one WME has
       // replaced is rebuilt (and re-populated) by the next ready.
-      if (controls === null || !deps.document.contains(controls.pane)) return;
-      applySignList(controls);
+      withAttachedControls(applySignList);
     },
   };
 
@@ -123,9 +123,17 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   function onMapMoved(): void {
     // A pane WME replaced is rebuilt by the next ready; updating a detached one
     // would only write into a document nobody is looking at.
-    if (controls === null || !deps.document.contains(controls.pane)) return;
-    applyCoverage(controls);
-    applySignList(controls);
+    withAttachedControls((panelControls) => {
+      applyCoverage(panelControls);
+      applySignList(panelControls);
+    });
+  }
+
+  /** Runs an update only while WME's current tab pane remains attached. */
+  function withAttachedControls(update: (panelControls: SignPanelControls) => void): void {
+    const panelControls = controls;
+    if (panelControls === null || !deps.document.contains(panelControls.pane)) return;
+    update(panelControls);
   }
 
   /**
@@ -152,24 +160,28 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   }
 
   /**
-   * The viewport-driven list: exactly the signs inside the current extent,
+   * The viewport-driven list: exactly the signs inside the current viewport,
    * counted in the header (spec §4.5, AC-20). The query runs against the
    * in-memory spatial index, so a re-filter costs no request and is never
-   * debounced — the extent is the only input.
+   * debounced — the viewport is the only input. The visibility checkbox only
+   * controls the map layer; it does not filter this spatial result list.
    */
   function applySignList(panelControls: SignPanelControls): void {
     const viewport = viewportOrNull();
-    // An unusable extent was already warned about, once, by the coverage read
-    // on the same event: with no trustworthy bounds the list keeps whatever
-    // the last usable extent left in it rather than claiming an empty view.
-    if (viewport === null) return;
+    // An unusable viewport was already warned about, once, by the coverage read
+    // on the same event. Clear stale rows rather than claiming they belong to
+    // the current viewport.
+    if (viewport === null) {
+      panelControls.list.markUnavailable();
+      return;
+    }
     panelControls.list.render(deps.spatialIndex.current().query(viewport));
   }
 
   /**
-   * Whether the viewport overlaps the Turku coverage extent. An extent the SDK
-   * cannot hand back as four finite numbers counts as covered: every sign in
-   * the registry lies inside the extent, so the worst a broken read can do is
+   * Whether the viewport overlaps the Turku coverage extent. Bounds the SDK
+   * cannot hand back as four finite numbers count as covered: every sign in
+   * the registry lies inside the coverage extent, so the worst a broken read can do is
    * show an enabled toggle, while counting it as uncovered would park the
    * panel behind a notice the user cannot act on. Warned once per page load.
    */
@@ -178,7 +190,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     return viewport === null ? true : overlapsTurkuCoverage(viewport);
   }
 
-  /** The viewport as a Bounding Box, or null when the SDK's extent is unusable. */
+  /** The viewport as a Bounding Box, or null when the SDK's bounds are unusable. */
   function viewportOrNull(): BoundingBox | null {
     const [left, bottom, right, top] = deps.sdk.Map.getMapExtent();
     if (
@@ -189,10 +201,10 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     ) {
       return [left, bottom, right, top];
     }
-    if (!extentWarned) {
-      extentWarned = true;
+    if (!invalidViewportWarned) {
+      invalidViewportWarned = true;
       console.warn(
-        "[turku-signs] Map extent is not four finite coordinates — treating the map as covered by Turku.",
+        "[turku-signs] Map viewport bounds are not four finite coordinates — treating the map as covered by Turku.",
       );
     }
     return null;
@@ -218,6 +230,9 @@ function buildControls(
   pane: HTMLElement,
   onVisibilityChange: (visible: boolean) => Promise<void>,
 ): SignPanelControls {
+  const content = document.createElement("div");
+  content.className = SIGN_PANEL_CONTENT_CLASS;
+
   const container = document.createElement("div");
   container.className = SIGN_VISIBILITY_CLASS;
 
@@ -233,11 +248,12 @@ function buildControls(
   notice.hidden = true;
 
   container.append(label, notice);
-  pane.append(container);
+  content.append(container);
 
   // Below the visibility block, above the permanent footer (which refresh()
   // appends last): the list is the tab's main content, not a control of its own.
-  const list = openSignList(document, pane);
+  const list = openSignList(document, content);
+  pane.append(content);
 
   toggle.addEventListener("change", () => {
     void onVisibilityChange(toggle.checked).catch((error: unknown) => {

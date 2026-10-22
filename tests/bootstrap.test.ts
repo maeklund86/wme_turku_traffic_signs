@@ -470,7 +470,7 @@ describe("viewport-driven sign list wiring (AC-20)", () => {
         record: record("2026-10-11T19:50:25.6808150Z", NOW, [
           sign("1", 22.2, 60.4),
           sign("2", 22.3, 60.5),
-          // East of the default test extent: a marker, but never a list row.
+          // East of the default test viewport: a marker, but never a list row.
           sign("far", 23.5, 61.0),
         ]),
       }),

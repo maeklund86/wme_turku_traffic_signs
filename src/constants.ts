@@ -27,6 +27,8 @@ export const OUTSIDE_TURKU_COVERAGE_CLASS = "turku-signs-outside-coverage";
  */
 export const SIGN_LIST_CLASS = "turku-signs-list";
 export const SIGN_LIST_HEADER_CLASS = "turku-signs-list-header";
+/** Wrapper for all Sign Panel content except the permanent attribution footer. */
+export const SIGN_PANEL_CONTENT_CLASS = "turku-signs-content";
 export const SIGN_ROW_CLASS = "turku-signs-row";
 export const SIGN_ROW_ICON_CLASS = "turku-signs-row-icon";
 export const SIGN_ROW_CODE_CLASS = "turku-signs-row-code";

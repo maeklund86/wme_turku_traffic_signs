@@ -14,13 +14,15 @@ import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
 
 /**
  * The Sign Panel's viewport-driven list (spec §4.5, AC-20/AC-21): a count
- * header over one self-contained row per sign inside the extent. It only ever
+ * header over one self-contained row per sign inside the viewport. It only ever
  * renders the signs it is handed — the viewport query against the in-memory
- * spatial index stays in the tab, which is where the extent comes from.
+ * spatial index stays in the tab, which is where the viewport comes from.
  */
 export interface SignList {
   /** Replaces the rows with exactly these signs, in the order given. */
   render(signs: readonly TrafficSign[]): void;
+  /** Clears stale rows and removes the count claim when viewport bounds fail. */
+  markUnavailable(): void;
 }
 
 /** Creates the list's header and rows inside the tab pane. */
@@ -32,14 +34,21 @@ export function openSignList(document: Document, pane: HTMLElement): SignList {
   list.className = SIGN_LIST_CLASS;
 
   pane.append(header, list);
-  return { render };
+  return { render, markUnavailable };
 
   function render(signs: readonly TrafficSign[]): void {
-    // Whole-list replacement, not patching: the extent decides membership, so
-    // every move can reorder and re-crop the set at once. Rows arrive in fetch
-    // order (the index's), which keeps the list stable across moves.
+    // Whole-list replacement, not patching: the viewport decides membership,
+    // so every move recalculates membership. Rows remain in fetch order, which
+    // keeps the list stable across moves.
     header.textContent = countText(signs.length);
     list.replaceChildren(...signs.map((sign) => buildRow(document, sign)));
+  }
+
+  function markUnavailable(): void {
+    // Never keep displaying a count from a previous viewport when current
+    // bounds cannot be read; that would claim a stale count as current.
+    header.textContent = "Sign count unavailable";
+    list.replaceChildren();
   }
 }
 
@@ -83,33 +92,39 @@ function buildRow(document: Document, sign: TrafficSign): HTMLElement {
   // neither a preview nor an expansion target, so nothing about it is rendered
   // and the row cannot expand into an empty block (AC-21).
   const notes = sign.notes;
-  let preview: HTMLElement | null = null;
-  let fullNotes: HTMLElement | null = null;
-  if (notes !== null) {
-    preview = document.createElement("span");
-    preview.className = SIGN_ROW_NOTES_CLASS;
-    preview.textContent = notes;
-    body.append(preview);
-
-    fullNotes = document.createElement("div");
-    fullNotes.className = SIGN_ROW_NOTES_FULL_CLASS;
-    fullNotes.textContent = notes;
-    fullNotes.hidden = true;
-    item.append(fullNotes);
-  }
+  const notesDisclosure = notes === null ? null : buildNotesDisclosure(document, notes);
+  if (notesDisclosure !== null) body.append(notesDisclosure.preview);
 
   row.addEventListener("click", () => {
+    if (notesDisclosure === null) return;
     // Inline disclosure: the row toggles its own full note beneath it. The list
     // stays exactly where it is — no popup, no list replacement (spec §4.5).
     const expanded = row.getAttribute("aria-expanded") === "true";
     row.setAttribute("aria-expanded", expanded ? "false" : "true");
-    if (preview !== null && fullNotes !== null) {
-      // Show the full note in place of the truncated preview, never both.
-      preview.hidden = !expanded;
-      fullNotes.hidden = expanded;
-    }
+    notesDisclosure.full.hidden = expanded;
   });
 
   item.append(row);
+  // Keep the row and its truncated preview in place; expansion adds the full
+  // note beneath them instead of replacing either part of the row.
+  if (notesDisclosure !== null) item.append(notesDisclosure.full);
   return item;
+}
+
+interface NotesDisclosure {
+  preview: HTMLElement;
+  full: HTMLElement;
+}
+
+function buildNotesDisclosure(document: Document, notes: string): NotesDisclosure {
+  const preview = document.createElement("span");
+  preview.className = SIGN_ROW_NOTES_CLASS;
+  preview.textContent = notes;
+
+  const full = document.createElement("div");
+  full.className = SIGN_ROW_NOTES_FULL_CLASS;
+  full.textContent = notes;
+  full.hidden = true;
+
+  return { preview, full };
 }

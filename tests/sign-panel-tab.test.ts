@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { openSignPanelTab } from "../src/sign-panel/tab";
+import {
+  SIGN_PANEL_CONTENT_CLASS,
+  SIGN_ROW_CODE_CLASS,
+  SIGN_ROW_ICON_CLASS,
+  SIGN_ROW_NAME_CLASS,
+  SIGN_ROW_NOTES_CLASS,
+  SIGN_ROW_NOTES_FULL_CLASS,
+} from "../src/constants";
 import { buildSpatialIndex } from "../src/data/spatial-index";
 import type { TrafficSign } from "../src/data/traffic-sign";
 import { officialSignIconUrl } from "../src/visual-overlay/sign-icon";
+import { SIGN_PLATE_HEIGHT, SIGN_PLATE_WIDTH } from "../src/visual-overlay/marker-graphics";
 import { SettingsRepository } from "../src/settings/settings-repository";
 import { createMemoryStore } from "../src/storage/memory-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
@@ -107,6 +116,8 @@ describe("Sign Panel tab shell", () => {
     expect(footer?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
     expect(footer?.querySelector("button, a, select, textarea, [role='button']")).toBeNull();
     expect(pane.lastElementChild).toBe(footer);
+    expect(pane.querySelectorAll("a, select, textarea, [role='button']")).toHaveLength(0);
+    expect([...pane.querySelectorAll("button")]).toEqual(rowsOf(pane));
     // The only input the tab owns is the visibility checkbox; list rows are
     // disclosure buttons, never inputs.
     const inputs = pane.querySelectorAll("input");
@@ -294,7 +305,7 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
     expect(mapMoves).toHaveLength(1);
   });
 
-  it("treats an unusable extent as covered and warns once", async () => {
+  it("treats unusable viewport bounds as covered and warns once", async () => {
     silenceConsole();
     const { fake, registerScriptTab, tab } = await openTab();
 
@@ -307,12 +318,12 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
     expect(toggleOf(pane).disabled).toBe(false);
     expect(vi.mocked(console.warn)).toHaveBeenCalledTimes(1);
 
-    // The same broken extent on a later move must not warn again.
+    // The same invalid viewport bounds on a later move must not warn again.
     fake.emitMapMoveEnd();
     expect(vi.mocked(console.warn)).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a non-finite coordinate as an unusable extent", async () => {
+  it("treats a non-finite coordinate as unusable viewport bounds", async () => {
     silenceConsole();
     const { fake, registerScriptTab, tab } = await openTab();
 
@@ -329,17 +340,17 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
   const NEARBY = sign("nearby", 22.25, 60.45);
   /** Also inside the INSIDE_TURKU viewport. */
   const OTHER = sign("other", 22.28, 60.42);
-  /** Well east of it, so no extent the panel sees contains it. */
+  /** Well east of it, so no viewport this panel sees contains it. */
   const FAR_AWAY = sign("far", 23.5, 61.0);
 
-  it("counts the signs inside the extent and re-filters on a finished map move", async () => {
+  it("counts the signs inside the viewport and re-filters on a finished map move", async () => {
     const { fake, registerScriptTab, tab } = await openTab({ signs: [NEARBY, OTHER, FAR_AWAY] });
 
     await tab.refresh();
 
     const pane = await paneOf(registerScriptTab);
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
-    expect(rowsOf(pane).map((row) => row.querySelector(".turku-signs-row-name")!.textContent)).toEqual([
+    expect(rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_NAME_CLASS}`)!.textContent)).toEqual([
       "C38 Pysäköinti kielletty",
       "C38 Pysäköinti kielletty",
     ]);
@@ -351,7 +362,7 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
     expect(rowsOf(pane)).toHaveLength(1);
     // The single row is still a row of this pane's list — nothing was replaced.
-    expect(rowsOf(pane)[0]!.parentElement!.parentElement!.parentElement).toBe(pane);
+    expect(pane.contains(rowsOf(pane)[0]!)).toBe(true);
   });
 
   it("shows the zero count when the viewport misses every sign", async () => {
@@ -362,6 +373,20 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     const pane = await paneOf(registerScriptTab);
     expect(listHeaderOf(pane).textContent).toBe("0 signs in view");
     expect(rowsOf(pane)).toHaveLength(0);
+  });
+
+  it("keeps the spatial list when the marker layer is hidden", async () => {
+    const { layer, registerScriptTab, tab } = await openTab({ signs: [NEARBY] });
+
+    await tab.refresh();
+    const pane = await paneOf(registerScriptTab);
+    await toggleCheckbox(pane, false);
+
+    // The checkbox controls the Visual Overlay layer only; list membership is
+    // still the set of signs inside the viewport (spec §4.5).
+    expect(layer.setVisible).toHaveBeenLastCalledWith(false);
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+    expect(rowsOf(pane)).toHaveLength(1);
   });
 
   it("re-reads the active dataset on a map move, as an ingest swap leaves it", async () => {
@@ -401,8 +426,8 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     const [row] = rowsOf(await paneOf(registerScriptTab));
     expect(row!.querySelector("img")!.src).toBe(officialSignIconUrl("C38"));
-    expect(row!.querySelector(".turku-signs-row-code")!.textContent).toBe("C38");
-    expect(row!.querySelector(".turku-signs-row-name")!.textContent).toBe("C38 Pysäköinti kielletty");
+    expect(row!.querySelector(`.${SIGN_ROW_CODE_CLASS}`)!.textContent).toBe("C38");
+    expect(row!.querySelector(`.${SIGN_ROW_NAME_CLASS}`)!.textContent).toBe("C38 Pysäköinti kielletty");
   });
 
   it("draws the code plate for a code the pinned collection has no SVG for", async () => {
@@ -413,7 +438,21 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     await tab.refresh();
 
     const [row] = rowsOf(await paneOf(registerScriptTab));
-    expect(row!.querySelector("img")!.src).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+    const icon = row!.querySelector<HTMLImageElement>(`.${SIGN_ROW_ICON_CLASS}`)!;
+    expect(icon.src).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+    expect(row!.closest(`.${SIGN_PANEL_CONTENT_CLASS}`)).not.toBeNull();
+    expect(getComputedStyle(icon).width).toBe(`${SIGN_PLATE_WIDTH}px`);
+    expect(getComputedStyle(icon).height).toBe(`${SIGN_PLATE_HEIGHT}px`);
+    expect(getComputedStyle(icon).objectFit).toBe("contain");
+
+    const outsidePanelIcon = document.createElement("img");
+    outsidePanelIcon.className = SIGN_ROW_ICON_CLASS;
+    document.body.append(outsidePanelIcon);
+    try {
+      expect(getComputedStyle(outsidePanelIcon).width).not.toBe(`${SIGN_PLATE_WIDTH}px`);
+    } finally {
+      outsidePanelIcon.remove();
+    }
   });
 
   it("expands a row inline to the full note, keeping the list in place", async () => {
@@ -426,7 +465,8 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     const pane = await paneOf(registerScriptTab);
     const [row] = rowsOf(pane);
-    expect(row!.querySelector(".turku-signs-row-notes")!.textContent).toBe(note);
+    const preview = row!.querySelector<HTMLElement>(`.${SIGN_ROW_NOTES_CLASS}`)!;
+    expect(preview.textContent).toBe(note);
 
     const fullNotes = fullNotesOf(row!);
     expect(fullNotes.textContent).toBe(note);
@@ -437,6 +477,8 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     expect(row!.getAttribute("aria-expanded")).toBe("true");
     expect(fullNotes.hidden).toBe(false);
+    expect(preview.hidden).toBe(false);
+    expect(row!.nextElementSibling).toBe(fullNotes);
     // Inline disclosure: the list itself neither moves nor replaces itself.
     expect(pane.contains(fullNotes)).toBe(true);
     expect(rowsOf(pane)).toHaveLength(1);
@@ -453,12 +495,13 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     await tab.refresh();
 
     const [row] = rowsOf(await paneOf(registerScriptTab));
-    expect(row!.querySelector(".turku-signs-row-notes")).toBeNull();
+    expect(row!.querySelector(`.${SIGN_ROW_NOTES_CLASS}`)).toBeNull();
     row!.click();
-    expect(row!.parentElement!.querySelector(".turku-signs-row-notes-full")).toBeNull();
+    expect(row!.parentElement!.querySelector(`.${SIGN_ROW_NOTES_FULL_CLASS}`)).toBeNull();
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("keeps the list as it was when the extent is unusable", async () => {
+  it("clears stale rows when viewport bounds are unusable", async () => {
     silenceConsole();
     const { fake, registerScriptTab, tab } = await openTab({ signs: [NEARBY, OTHER] });
 
@@ -467,6 +510,12 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
 
     fake.map.getMapExtent.mockReturnValue([22.2]);
+    fake.emitMapMoveEnd();
+
+    expect(listHeaderOf(pane).textContent).toBe("Sign count unavailable");
+    expect(rowsOf(pane)).toHaveLength(0);
+
+    fake.map.getMapExtent.mockReturnValue(INSIDE_TURKU);
     fake.emitMapMoveEnd();
 
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
