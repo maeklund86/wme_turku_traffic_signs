@@ -101,6 +101,23 @@ Per [#12](https://github.com/maeklund86/wme_turku_traffic_signs/issues/12) and [
 - An own sidebar tab via `sdk.Sidebar.registerScriptTab`, **always registered**.
 - **Visibility control:** checkbox driving `setLayerVisibility`, default on inside the Turku extent, flag persisted in userscript storage and re-applied after every `wme-ready`. Display-only: toggling never touches the network (fetch/cache independence, §4.3). Outside the Turku coverage extent the tab shows a one-line "outside Turku coverage" notice and the toggle is disabled; no signs render.
 - **Sign Category filter block:** collapsible, at the top of the tab; chips per category with select-all/none; state survives viewport moves. Filtering is on `Varustelaji_koodi` **prefix** grouped into Sign Categories — never the localized name.
+
+The filter matches prefixes at the start of `Varustelaji_koodi`. More-specific groups take precedence over broad code families; `Other` is the fallback. Letter families follow the [Government Decree on the Use of Traffic Control Devices (379/2020)](https://www.finlex.fi/fi/lainsaadanto/2020/379).
+
+| Sign Category | `Varustelaji_koodi` prefixes |
+| --- | --- |
+| Speed limits | `C32`, `C33`, `C34`, `C35`, `C36_7`, `C36.7` |
+| Priority | `B` |
+| Parking | `C37`–`C44`, `E2`–`E4`, `F46` |
+| Warning signs | `A` |
+| Other restrictions | `C` (after speed-limit and parking prefixes) |
+| Mandatory signs | `D` |
+| Traffic rules | `E` (after parking prefixes) |
+| Direction signs | `F` (after parking prefix) |
+| Service signs | `G` |
+| Supplementary signs | `H` |
+| Other | Any code with no matching prefix, including numeric legacy codes |
+
 - **Viewport-driven sign list:** extent from `sdk.Map.getMapExtent()` (GeoJSON BBox `[left, bottom, right, top]`, WGS84), re-filtered client-side on `wme-map-move-end` against the in-memory spatial index — zero requests, no debounce. Header shows a count ("N signs in view"). Rows are self-contained: icon (CC0 SVG, or code plate where unmatched) + sign code + official name + truncated notes; a row **expands inline** for full notes — no popup, no list replacement.
 - **Marker → panel resolution:** clicking a marker highlights and expands the matching list row, one selection at a time, and switches the sidebar to the script tab. Clicking the map with no sign clears the panel to its empty state. Details are never pushed to `Editing.setSelection`.
 - **Attribution footer:** permanent, non-dismissible — "Traffic sign data © City of Turku, CC BY 4.0" — visible in every mode including private testing.
