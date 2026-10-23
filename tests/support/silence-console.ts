@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 /** The service logs every degradation path by design; keep test output clean. */
 export function silenceConsole(): void {

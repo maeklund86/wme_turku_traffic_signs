@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   createHttpPageFetcher,
@@ -7,8 +7,7 @@ import {
   type OgcApiPage,
 } from "../src/data/turku-sign-ingestion";
 
-const ITEMS_URL =
-  "https://opaskartta.turku.fi/trimbleogcapi/collections/GIS:Liikennemerkit/items";
+const ITEMS_URL = "https://opaskartta.turku.fi/trimbleogcapi/collections/GIS:Liikennemerkit/items";
 
 /** Spec ground truth: whole City of Turku extent, WGS84 [minLon,minLat,maxLon,maxLat]. */
 const TURKU_BBOX = "22.09,60.35,22.39,60.61";
@@ -33,7 +32,10 @@ function itemsUrl(offset: string): string {
 }
 
 /** Routes requests by query parameter, the way the API itself addresses pages. */
-function createPageFetcher(script: { pages: readonly FakePage[]; failOffsets?: readonly string[] }) {
+function createPageFetcher(script: {
+  pages: readonly FakePage[];
+  failOffsets?: readonly string[];
+}) {
   const requested: string[] = [];
   const fetchPage = vi.fn(async (url: string): Promise<OgcApiPage> => {
     requested.push(url);
@@ -58,7 +60,12 @@ function feature(id: string): unknown {
   };
 }
 
-const pageOf = (offset: string, count: number, timeStamp: string, nextOffset?: string): FakePage => ({
+const pageOf = (
+  offset: string,
+  count: number,
+  timeStamp: string,
+  nextOffset?: string,
+): FakePage => ({
   offset,
   features: Array.from({ length: count }, (_, index) => feature(`${offset}-${index}`)),
   timeStamp,
@@ -133,7 +140,14 @@ describe("Whole-Turku ingestion (Trimble OGC API)", () => {
 
   it('refuses to loop when rel="next" revisits an already fetched page', async () => {
     const { fetchPage } = createPageFetcher({
-      pages: [{ offset: "0", features: [feature("1")], timeStamp: "2026-10-11T19:50:25.6808150Z", nextOffset: "0" }],
+      pages: [
+        {
+          offset: "0",
+          features: [feature("1")],
+          timeStamp: "2026-10-11T19:50:25.6808150Z",
+          nextOffset: "0",
+        },
+      ],
     });
 
     await expect(fetchWholeTurkuDataset({ fetchPage })).rejects.toThrow(/pagination loop/);
@@ -154,7 +168,9 @@ describe("Whole-Turku ingestion (Trimble OGC API)", () => {
       ],
     });
 
-    await expect(fetchWholeTurkuDataset({ fetchPage })).rejects.toThrow(/pagination does not advance/);
+    await expect(fetchWholeTurkuDataset({ fetchPage })).rejects.toThrow(
+      /pagination does not advance/,
+    );
   });
 
   it("drops registry rows with no sign code or name, and says so", async () => {
@@ -164,7 +180,14 @@ describe("Whole-Turku ingestion (Trimble OGC API)", () => {
         {
           offset: "0",
           timeStamp: "2026-10-11T19:50:25.6808150Z",
-          features: [feature("1"), { type: "Feature", geometry: { type: "Point", coordinates: [22.2, 60.4, 0] }, properties: { Id: "0" } }],
+          features: [
+            feature("1"),
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [22.2, 60.4, 0] },
+              properties: { Id: "0" },
+            },
+          ],
         },
       ],
     });

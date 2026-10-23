@@ -6,3 +6,4 @@ __pycache__/
 # in src/ (userscript) and scripts/ (Python + Node).
 node_modules/
 dist/
+.vitest/

@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 import type { DatasetStore } from "../../src/data/dataset-store";
 import type { SignDatasetRecord } from "../../src/data/sign-dataset-record";
@@ -8,11 +8,13 @@ import type { SignDatasetRecord } from "../../src/data/sign-dataset-record";
  * writes persist for later reads, and `writeFailures` injects the write
  * failures the recovery policy must survive.
  */
-export function createFakeDatasetStore(options: {
-  open?: boolean;
-  record?: SignDatasetRecord | null;
-  writeFailures?: number;
-} = {}) {
+export function createFakeDatasetStore(
+  options: {
+    open?: boolean;
+    record?: SignDatasetRecord | null;
+    writeFailures?: number;
+  } = {},
+) {
   let stored: SignDatasetRecord | null = options.record ?? null;
   let writeFailuresLeft = options.writeFailures ?? 0;
   const write = vi.fn(async (record: SignDatasetRecord) => {

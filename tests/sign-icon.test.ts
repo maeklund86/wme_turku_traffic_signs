@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   NEW_SIGN_SVG_PATH,
@@ -6,10 +6,15 @@ import {
   SIGN_ICON_ASSET_BASE_URL,
   SIGN_ICON_ASSET_COMMIT,
 } from "../src/constants";
-import { CATALOGUE_COMMIT, NEW_SIGN_ICON_CODES, OLD_SIGN_ICON_CODES } from "../src/visual-overlay/sign-icon-catalogue.generated";
+import {
+  CATALOGUE_COMMIT,
+  NEW_SIGN_ICON_CODES,
+  OLD_SIGN_ICON_CODES,
+} from "../src/visual-overlay/sign-icon-catalogue.generated";
 import { officialSignIconUrl } from "../src/visual-overlay/sign-icon";
 
-const codes = (listing: string): readonly string[] => listing.split(/\s+/).filter((c) => c.length > 0);
+const codes = (listing: string): readonly string[] =>
+  listing.split(/\s+/).filter((c) => c.length > 0);
 
 describe("official sign icon resolution (AC-14)", () => {
   it("pins every asset URL to the frozen commit SHA", () => {

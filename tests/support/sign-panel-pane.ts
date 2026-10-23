@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 import {
   OUTSIDE_TURKU_COVERAGE_CLASS,
@@ -13,7 +13,10 @@ import {
 type RegisterScriptTab = ReturnType<typeof vi.fn>;
 
 /** The pane WME handed the script, read from the spy's Nth registered tab. */
-export async function paneOf(registerScriptTab: RegisterScriptTab, index = 0): Promise<HTMLElement> {
+export async function paneOf(
+  registerScriptTab: RegisterScriptTab,
+  index = 0,
+): Promise<HTMLElement> {
   const result = registerScriptTab.mock.results[index];
   if (!result) throw new Error("registerScriptTab was never called");
   return (await result.value).tabPane as HTMLElement;

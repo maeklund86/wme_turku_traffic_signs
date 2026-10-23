@@ -7,7 +7,7 @@
   "scripts": {
     "build": "esbuild src/main.ts --bundle --format=iife --target=es2022 --banner:js=\"$(cat userscript.header.js)\" --outfile=dist/wme-turku-traffic-signs.user.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vp test run",
     "check": "npm run typecheck && npm run test"
   },
   "devDependencies": {
@@ -18,7 +18,10 @@
     "jsdom": "^27.0.0",
     "typescript": "^7.0.2",
     "typescript-language-server": "^5.3.0",
-    "vitest": "^5.0.3",
+    "vite-plus": "1.4.0",
     "wme-sdk-typings": "https://web-assets.waze.com/wme_sdk_docs/production/v2.370-3-gaa6183241e/wme-sdk-typings.tgz"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0"
   }
 }

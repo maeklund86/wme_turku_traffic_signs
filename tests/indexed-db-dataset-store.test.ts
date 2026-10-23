@@ -3,7 +3,7 @@
 // support/INDEXEDDB-NOTES.md before changing how this test seeds or scans.
 import "fake-indexeddb/auto";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { SIGN_DATABASE_NAME, TURKU_PARTITION_STORE_NAME } from "../src/constants";
 import { createIndexedDbDatasetStore } from "../src/data/indexed-db-dataset-store";
@@ -89,9 +89,7 @@ describe("Client Cache (IndexedDB dataset store)", () => {
 
     await store.write(TURKU_RECORD);
 
-    await expect(rawEntryKeys()).resolves.toEqual([
-      signDatasetKey("2026-10-11T19:50:25.6808150Z"),
-    ]);
+    await expect(rawEntryKeys()).resolves.toEqual([signDatasetKey("2026-10-11T19:50:25.6808150Z")]);
   });
 
   it("replaces the previous dataset when a refetch writes a new one", async () => {

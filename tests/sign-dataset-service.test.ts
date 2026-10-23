@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { openSignDatasetSource } from "../src/data/sign-dataset-service";
 import { CACHE_TTL_MS } from "../src/constants";

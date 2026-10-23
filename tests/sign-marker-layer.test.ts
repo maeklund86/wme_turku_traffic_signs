@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { SdkFeature, WmeSDK } from "wme-sdk-typings";
 
@@ -60,10 +60,7 @@ describe("Visual Overlay marker layer (AC-9)", () => {
 
   it("adds one feature per sign, at its WGS84 point, with no reprojection", () => {
     const host = createHost();
-    const signs = [
-      sign("1", 22.27617187661397, 60.443853785959234),
-      sign("2", 22.1, 60.4),
-    ];
+    const signs = [sign("1", 22.27617187661397, 60.443853785959234), sign("2", 22.1, 60.4)];
     openSignMarkerLayer({ sdk: host }).render(signs);
 
     expect(host.addFeatureToLayer.mock.calls.map(([{ layerName }]) => layerName)).toEqual([
@@ -84,10 +81,7 @@ describe("Visual Overlay marker layer (AC-9)", () => {
 
   it("keeps the registry key as the feature id, falling back when absent", () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host }).render([
-      sign("", 22.2, 60.4),
-      sign("known", 22.2, 60.41),
-    ]);
+    openSignMarkerLayer({ sdk: host }).render([sign("", 22.2, 60.4), sign("known", 22.2, 60.41)]);
 
     expect(features(host).map((feature) => feature.id)).toEqual(["turku-sign/0", "known"]);
   });

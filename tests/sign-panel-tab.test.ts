@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { openSignPanelTab } from "../src/sign-panel/tab";
 import {
@@ -150,7 +150,9 @@ describe("Sign Panel tab shell", () => {
     expect(registerScriptTab).toHaveBeenCalledTimes(2);
     const freshPane = await paneOf(registerScriptTab, 1);
     expect(freshPane.querySelectorAll("input")).toHaveLength(1);
-    expect(freshPane.lastElementChild?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
+    expect(freshPane.lastElementChild?.textContent).toBe(
+      "Traffic sign data © City of Turku, CC BY 4.0",
+    );
   });
 });
 
@@ -206,7 +208,10 @@ describe("Sign Panel visibility control (AC-16)", () => {
     await tab.refresh();
     await toggleCheckbox(await paneOf(registerScriptTab), false);
 
-    await expect(repository.load()).resolves.toEqual({ showSigns: false, categoryFilter: ["priority"] });
+    await expect(repository.load()).resolves.toEqual({
+      showSigns: false,
+      categoryFilter: ["priority"],
+    });
   });
 });
 
@@ -351,10 +356,9 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     const pane = await paneOf(registerScriptTab);
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
-    expect(rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_NAME_CLASS}`)!.textContent)).toEqual([
-      "C38 Pysäköinti kielletty",
-      "C38 Pysäköinti kielletty",
-    ]);
+    expect(
+      rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_NAME_CLASS}`)!.textContent),
+    ).toEqual(["C38 Pysäköinti kielletty", "C38 Pysäköinti kielletty"]);
 
     // The user zooms in: no wme-ready, just a finished map move.
     fake.map.getMapExtent.mockReturnValue([22.24, 60.44, 22.26, 60.46]);
@@ -428,7 +432,9 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     const [row] = rowsOf(await paneOf(registerScriptTab));
     expect(row!.querySelector("img")!.src).toBe(officialSignIconUrl("C38"));
     expect(row!.querySelector(`.${SIGN_ROW_CODE_CLASS}`)!.textContent).toBe("C38");
-    expect(row!.querySelector(`.${SIGN_ROW_NAME_CLASS}`)!.textContent).toBe("C38 Pysäköinti kielletty");
+    expect(row!.querySelector(`.${SIGN_ROW_NAME_CLASS}`)!.textContent).toBe(
+      "C38 Pysäköinti kielletty",
+    );
   });
 
   it("draws the code plate for a code the pinned collection has no SVG for", async () => {

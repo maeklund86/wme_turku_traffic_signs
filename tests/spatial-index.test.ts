@@ -1,14 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { buildSpatialIndex } from "../src/data/spatial-index";
 import { sign } from "./support/turku-sign";
 
 describe("In-memory spatial index", () => {
   it("returns only the signs inside the bounds", () => {
-    const index = buildSpatialIndex([
-      sign("inside", 22.25, 60.45),
-      sign("outside", 23.5, 61.5),
-    ]);
+    const index = buildSpatialIndex([sign("inside", 22.25, 60.45), sign("outside", 23.5, 61.5)]);
 
     const hits = index.query([22.24, 60.44, 22.26, 60.46]);
 

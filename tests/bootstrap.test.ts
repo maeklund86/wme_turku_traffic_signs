@@ -1,9 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { WmeSDK } from "wme-sdk-typings";
 
 import { bootstrap, type SignDataDeps, type SdkHostWindow } from "../src/bootstrap";
-import { CACHE_TTL_MS, SIGN_LAYER_NAME, SIGN_PANEL_SETTINGS_KEY, TURKU_EXTENT } from "../src/constants";
+import {
+  CACHE_TTL_MS,
+  SIGN_LAYER_NAME,
+  SIGN_PANEL_SETTINGS_KEY,
+  TURKU_EXTENT,
+} from "../src/constants";
 import type { SignDatasetRecord } from "../src/data/sign-dataset-record";
 import type { TrafficSign } from "../src/data/traffic-sign";
 import { createMemoryStore } from "../src/storage/memory-store";
@@ -69,7 +74,9 @@ describe("userscript bootstrap", () => {
   it("obtains the WME SDK only after window.SDK_INITIALIZED", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
 
     const started = bootstrap({
       pageWindow,
@@ -105,7 +112,9 @@ describe("userscript bootstrap", () => {
   it("registers the Sign Panel tab only once wme-ready fires", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const started = bootstrap({
       pageWindow,
       document: globalThis.document,
@@ -122,13 +131,17 @@ describe("userscript bootstrap", () => {
 
     const { tabLabel, tabPane } = await fake.registerScriptTab.mock.results[0]!.value;
     expect(tabLabel.textContent).toBe("Sign Panel");
-    expect((tabPane as HTMLElement).textContent).toContain("Traffic sign data © City of Turku, CC BY 4.0");
+    expect((tabPane as HTMLElement).textContent).toContain(
+      "Traffic sign data © City of Turku, CC BY 4.0",
+    );
   });
 
   it("re-applies persisted state after every wme-ready, without re-registering the tab", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const { store, settingsLoads } = countingStore();
     const started = bootstrap({
       pageWindow,
@@ -157,7 +170,9 @@ describe("userscript bootstrap", () => {
   it("opens the Client Cache before the first wme-ready", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const dataDeps = createFakeDataDeps();
     const started = bootstrap({
       pageWindow,
@@ -176,7 +191,9 @@ describe("userscript bootstrap", () => {
   it("renders from the Client Cache on wme-ready with no fetch while the cache is fresh", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const dataDeps = createFakeDataDeps({ record: TURKU_RECORD });
     const started = bootstrap({
       pageWindow,
@@ -202,7 +219,9 @@ describe("userscript bootstrap", () => {
   it("ingests the whole registry once on the first wme-ready and persists it", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const dataDeps = createFakeDataDeps();
     const started = bootstrap({
       pageWindow,
@@ -225,7 +244,9 @@ describe("userscript bootstrap", () => {
   it("revalidates in the background only when the cached dataset is stale", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const dataDeps = createFakeDataDeps({
       record: record("2026-10-01T00:00:00.000Z", NOW - CACHE_TTL_MS - 1000, [
         sign("cached", 22.1, 60.4),
@@ -250,8 +271,12 @@ describe("visual overlay wiring", () => {
   function bootWithSigns(signs: readonly TrafficSign[], storage = createMemoryStore()) {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
-    const dataDeps = createFakeDataDeps({ record: record("2026-10-11T19:50:25.6808150Z", NOW, signs) });
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
+    const dataDeps = createFakeDataDeps({
+      record: record("2026-10-11T19:50:25.6808150Z", NOW, signs),
+    });
     return {
       fake,
       resolveSdkInitialized,
@@ -320,9 +345,9 @@ describe("visual overlay wiring", () => {
     await vi.waitFor(() => {
       const features = addedFeatures(fake);
       expect(features.length).toBeGreaterThan(0);
-      expect(features.every((feature) => ["speed", "lane-speed"].includes(String(feature.id)))).toBe(
-        true,
-      );
+      expect(
+        features.every((feature) => ["speed", "lane-speed"].includes(String(feature.id))),
+      ).toBe(true);
     });
   });
 
@@ -403,7 +428,9 @@ describe("Sign Panel visibility control", () => {
   it("defaults the checkbox on inside the coverage extent and applies the flag (AC-16)", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const started = bootstrap({
       pageWindow,
       document: globalThis.document,
@@ -429,7 +456,9 @@ describe("Sign Panel visibility control", () => {
   it("explains itself outside the coverage extent, where no marker can be drawn (AC-17)", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     // A viewport west of Turku that misses the coverage extent entirely.
     fake.map.getMapExtent.mockReturnValue([21.5, 60.0, 22.0, 60.2]);
     const started = bootstrap({
@@ -472,7 +501,9 @@ describe("Sign Panel visibility control", () => {
   it("toggling the checkbox issues no network requests and keeps the markers (AC-18)", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const dataDeps = createFakeDataDeps({
       record: record("2026-10-11T19:50:25.6808150Z", NOW, [sign("1", 22.2, 60.4)]),
     });
@@ -506,7 +537,9 @@ describe("viewport-driven sign list wiring (AC-20)", () => {
   it("fills the list from the loaded dataset, with the in-view count in the header", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const started = bootstrap({
       pageWindow,
       document: globalThis.document,
@@ -538,7 +571,9 @@ describe("viewport-driven sign list wiring (AC-20)", () => {
   it("shows the zero count until the dataset resolves, then fills in", async () => {
     silenceConsole();
     const fake = createFakeWmeSdk();
-    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(fake.sdk as unknown as WmeSDK);
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
     const datasetStore = createFakeDatasetStore({ record: null });
     let resolveFetch!: (value: SignDatasetRecord) => void;
     const fetchDataset = vi.fn(

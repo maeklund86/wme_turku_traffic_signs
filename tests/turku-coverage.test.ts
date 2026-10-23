@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { BoundingBox } from "../src/data/bounding-box";
 import { TURKU_EXTENT } from "../src/constants";
@@ -16,9 +16,7 @@ describe("Turku coverage (AC-17)", () => {
 
   it("covers the coverage extent itself, boundary included", () => {
     expect(overlapsTurkuCoverage(TURKU_EXTENT)).toBe(true);
-    expect(
-      overlapsTurkuCoverage([TURKU_LEFT, TURKU_BOTTOM, 22.2, TURKU_TOP]),
-    ).toBe(true);
+    expect(overlapsTurkuCoverage([TURKU_LEFT, TURKU_BOTTOM, 22.2, TURKU_TOP])).toBe(true);
   });
 
   it("covers a zoomed-out viewport that shows the extent among other areas", () => {

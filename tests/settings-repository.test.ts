@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { SIGN_PANEL_SETTINGS_KEY } from "../src/constants";
 import { createMemoryStore } from "../src/storage/memory-store";
-import { DEFAULT_SIGN_PANEL_SETTINGS, SettingsRepository } from "../src/settings/settings-repository";
+import {
+  DEFAULT_SIGN_PANEL_SETTINGS,
+  SettingsRepository,
+} from "../src/settings/settings-repository";
 import { createStoreSeededWith } from "./support/seeded-store";
 
 describe("SettingsRepository (Sign Panel persisted state)", () => {

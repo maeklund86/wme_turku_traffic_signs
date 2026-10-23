@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 
 import type { SdkFeature } from "wme-sdk-typings";
 
@@ -18,9 +18,13 @@ const SUPPORTED_EVENTS = [
  * so tests can pass the whole object as a stand-in SDK and still assert on the
  * calls directly.
  */
-export function createFakeMapSurface(mapElement: HTMLElement | (() => never) = document.createElement("div")) {
+export function createFakeMapSurface(
+  mapElement: HTMLElement | (() => never) = document.createElement("div"),
+) {
   const addLayer = vi.fn();
-  const addFeatureToLayer = vi.fn((args: { layerName: string; feature: SdkFeature }) => args.feature);
+  const addFeatureToLayer = vi.fn(
+    (args: { layerName: string; feature: SdkFeature }) => args.feature,
+  );
   const removeAllFeaturesFromLayer = vi.fn();
   const setLayerVisibility = vi.fn();
   const getMapViewportElement = vi.fn(() =>
@@ -29,7 +33,14 @@ export function createFakeMapSurface(mapElement: HTMLElement | (() => never) = d
   /** Defaults to a viewport inside the Turku coverage extent; override per test. */
   const getMapExtent = vi.fn((): number[] => [...TURKU_EXTENT]);
   return {
-    Map: { addLayer, addFeatureToLayer, removeAllFeaturesFromLayer, setLayerVisibility, getMapViewportElement, getMapExtent },
+    Map: {
+      addLayer,
+      addFeatureToLayer,
+      removeAllFeaturesFromLayer,
+      setLayerVisibility,
+      getMapViewportElement,
+      getMapExtent,
+    },
     addLayer,
     addFeatureToLayer,
     removeAllFeaturesFromLayer,
@@ -116,7 +127,10 @@ export function createFakeWmeSdk() {
       eventBus.emit("wme-map-move-end", undefined);
     },
     /** Fires a layer hover event, as `sdk.Events` would for a tracked layer. */
-    emitFeatureHover: (eventName: "wme-layer-feature-mouse-enter" | "wme-layer-feature-mouse-leave", payload: unknown) => {
+    emitFeatureHover: (
+      eventName: "wme-layer-feature-mouse-enter" | "wme-layer-feature-mouse-leave",
+      payload: unknown,
+    ) => {
       eventBus.emit(eventName, payload);
     },
   };
