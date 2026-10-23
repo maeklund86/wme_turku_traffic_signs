@@ -55,8 +55,10 @@ function parsePoint(value: unknown): readonly [number, number] | null {
   const coordinates = value.coordinates;
   if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
   const [longitude, latitude] = coordinates as unknown[];
-  return typeof longitude === "number" && Number.isFinite(longitude) &&
-    typeof latitude === "number" && Number.isFinite(latitude)
+  return typeof longitude === "number" &&
+    Number.isFinite(longitude) &&
+    typeof latitude === "number" &&
+    Number.isFinite(latitude)
     ? [longitude, latitude]
     : null;
 }

@@ -1,4 +1,8 @@
-import { SIGN_DATABASE_NAME, SIGN_DATASET_KEY_PREFIX, TURKU_PARTITION_STORE_NAME } from "../constants";
+import {
+  SIGN_DATABASE_NAME,
+  SIGN_DATASET_KEY_PREFIX,
+  TURKU_PARTITION_STORE_NAME,
+} from "../constants";
 import {
   isOlderSchemaDatasetKey,
   signDatasetKey,
@@ -16,7 +20,9 @@ export function createIndexedDbDatasetStore(): DatasetStore {
     if (database === null) {
       throw new Error("Client Cache is not open");
     }
-    return database.transaction(TURKU_PARTITION_STORE_NAME, mode).objectStore(TURKU_PARTITION_STORE_NAME);
+    return database
+      .transaction(TURKU_PARTITION_STORE_NAME, mode)
+      .objectStore(TURKU_PARTITION_STORE_NAME);
   };
 
   return {
@@ -112,7 +118,8 @@ async function deleteEntriesUnderOlderSchemaVersions(store: IDBObjectStore): Pro
 function parseRecord(value: unknown): SignDatasetRecord | null {
   if (typeof value !== "object" || value === null) return null;
   const candidate = value as Partial<SignDatasetRecord>;
-  if (typeof candidate.timeStamp !== "string" || typeof candidate.storedAt !== "number") return null;
+  if (typeof candidate.timeStamp !== "string" || typeof candidate.storedAt !== "number")
+    return null;
   if (!Array.isArray(candidate.signs)) return null;
   return {
     timeStamp: candidate.timeStamp,

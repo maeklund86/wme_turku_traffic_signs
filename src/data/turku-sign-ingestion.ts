@@ -1,8 +1,4 @@
-import {
-  PAGE_SIZE_LIMIT,
-  TRIMBLE_ITEMS_ENDPOINT,
-  TURKU_EXTENT,
-} from "../constants";
+import { PAGE_SIZE_LIMIT, TRIMBLE_ITEMS_ENDPOINT, TURKU_EXTENT } from "../constants";
 import { isPlainObject } from "../json";
 import type { SignDatasetRecord } from "./sign-dataset-record";
 import { parseTrafficSignFeature, type TrafficSign } from "./traffic-sign";
@@ -129,7 +125,9 @@ export function createUserscriptPageBodyFetcher(): PageBodyFetcher {
   return fetchPageBody;
 }
 
-function gmPageBodyFetcher(xmlHttpRequest: NonNullable<typeof globalThis.GM.xmlHttpRequest>): PageBodyFetcher {
+function gmPageBodyFetcher(
+  xmlHttpRequest: NonNullable<typeof globalThis.GM.xmlHttpRequest>,
+): PageBodyFetcher {
   return (url: string) =>
     new Promise<string>((resolve, reject) => {
       xmlHttpRequest({

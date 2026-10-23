@@ -36,7 +36,11 @@ export function buildSpatialIndex(signs: readonly TrafficSign[]): SpatialIndex {
   };
 }
 
-function queryCells(signs: readonly TrafficSign[], cells: Map<string, number[]>, bounds: BoundingBox): readonly TrafficSign[] {
+function queryCells(
+  signs: readonly TrafficSign[],
+  cells: Map<string, number[]>,
+  bounds: BoundingBox,
+): readonly TrafficSign[] {
   const [minLongitude, minLatitude, maxLongitude, maxLatitude] = bounds;
   const positions: number[] = [];
   const fromLongitude = Math.floor(minLongitude / CELL_SIZE);

@@ -244,8 +244,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   function saveSettings(settings: SignPanelSettings): Promise<void> {
     const snapshot: SignPanelSettings = {
       ...settings,
-      categoryFilter:
-        settings.categoryFilter === null ? null : [...settings.categoryFilter],
+      categoryFilter: settings.categoryFilter === null ? null : [...settings.categoryFilter],
     };
     settingsWriteQueue = settingsWriteQueue
       .catch(() => undefined)

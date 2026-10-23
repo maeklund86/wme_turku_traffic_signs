@@ -14,20 +14,7 @@ export const SIGN_CATEGORIES = [
   {
     key: "parking",
     label: "Parking",
-    prefixes: [
-      "C37",
-      "C38",
-      "C39",
-      "C40",
-      "C41",
-      "C42",
-      "C43",
-      "C44",
-      "E2",
-      "E3",
-      "E4",
-      "F46",
-    ],
+    prefixes: ["C37", "C38", "C39", "C40", "C41", "C42", "C43", "C44", "E2", "E3", "E4", "F46"],
   },
   { key: "warning", label: "Warning signs", prefixes: ["A"] },
   { key: "restrictions", label: "Other restrictions", prefixes: ["C"] },
@@ -57,7 +44,7 @@ export function filterSignsByCategories(
 
 function categoryForCode(signCode: string): SignCategoryKey {
   return (
-    SIGN_CATEGORIES.find(({ prefixes }) => prefixes.some((prefix) => signCode.startsWith(prefix)))?.key ??
-    "other"
+    SIGN_CATEGORIES.find(({ prefixes }) => prefixes.some((prefix) => signCode.startsWith(prefix)))
+      ?.key ?? "other"
   );
 }

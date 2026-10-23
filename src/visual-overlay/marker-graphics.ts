@@ -45,8 +45,7 @@ export const SIGN_PLATE_CODE_GLYPH_RATIO = 0.62;
 export const SIGN_PLATE_FONT_FAMILY = "Arial, Helvetica, sans-serif";
 
 /** What the code may occupy before it reaches the border. */
-export const SIGN_PLATE_INNER_WIDTH =
-  SIGN_PLATE_WIDTH - 2 * SIGN_PLATE_BORDER_WIDTH;
+export const SIGN_PLATE_INNER_WIDTH = SIGN_PLATE_WIDTH - 2 * SIGN_PLATE_BORDER_WIDTH;
 
 /** The post every marker stands on, with its subtle drop shadow baked in. */
 export const SIGN_POST_GRAPHIC: string = svgDataUri(postSvg());
@@ -87,7 +86,9 @@ function plateSvg(signCode: string): string {
   // textLength only appears once the smallest readable size would still
   // overshoot, so ordinary codes render completely undistorted.
   const forcedWidth =
-    code.textLength === undefined ? "" : `textLength="${code.textLength}" lengthAdjust="spacingAndGlyphs" `;
+    code.textLength === undefined
+      ? ""
+      : `textLength="${code.textLength}" lengthAdjust="spacingAndGlyphs" `;
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${SIGN_PLATE_WIDTH}" ` +
     `height="${SIGN_PLATE_HEIGHT}" viewBox="0 0 ${SIGN_PLATE_WIDTH} ${SIGN_PLATE_HEIGHT}">` +
@@ -113,11 +114,16 @@ function plateSvg(signCode: string): string {
  */
 function plateCodeStyle(signCode: string): { fontSize: number; textLength?: number } {
   const innerWidth = SIGN_PLATE_INNER_WIDTH;
-  const atSmallest = Math.max(signCode.length, 1) * SIGN_PLATE_CODE_FONT_SIZE_MIN * SIGN_PLATE_CODE_GLYPH_RATIO;
-  if (atSmallest > innerWidth) return { fontSize: SIGN_PLATE_CODE_FONT_SIZE_MIN, textLength: innerWidth };
+  const atSmallest =
+    Math.max(signCode.length, 1) * SIGN_PLATE_CODE_FONT_SIZE_MIN * SIGN_PLATE_CODE_GLYPH_RATIO;
+  if (atSmallest > innerWidth)
+    return { fontSize: SIGN_PLATE_CODE_FONT_SIZE_MIN, textLength: innerWidth };
 
   const fitted = innerWidth / (Math.max(signCode.length, 1) * SIGN_PLATE_CODE_GLYPH_RATIO);
-  const fontSize = Math.min(SIGN_PLATE_CODE_FONT_SIZE, Math.max(SIGN_PLATE_CODE_FONT_SIZE_MIN, fitted));
+  const fontSize = Math.min(
+    SIGN_PLATE_CODE_FONT_SIZE,
+    Math.max(SIGN_PLATE_CODE_FONT_SIZE_MIN, fitted),
+  );
   return { fontSize: Math.round(fontSize * 10) / 10 };
 }
 

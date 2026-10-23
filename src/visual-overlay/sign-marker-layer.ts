@@ -1,4 +1,9 @@
-import type { SdkFeature, SdkFeatureStyleContext, SdkFeatureStyleRule, WmeSDK } from "wme-sdk-typings";
+import type {
+  SdkFeature,
+  SdkFeatureStyleContext,
+  SdkFeatureStyleRule,
+  WmeSDK,
+} from "wme-sdk-typings";
 
 import type { TrafficSign } from "../data/traffic-sign";
 import { filterSignsByCategories, type SignCategoryKey } from "../data/sign-categories";
