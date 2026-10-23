@@ -105,6 +105,21 @@ describe("Visual Overlay marker layer (AC-9)", () => {
     });
   });
 
+  it("filters marker features by sign-code category, not localized sign name", () => {
+    const host = createHost();
+    const layer = openSignMarkerLayer({ sdk: host });
+    layer.render([
+      sign("speed", 22.25, 60.45, { signCode: "C32_2", signName: "Pysäköinti kielletty" }),
+      sign("parking", 22.26, 60.45, { signCode: "C38", signName: "No speed limit" }),
+      sign("priority", 22.27, 60.45, { signCode: "B1" }),
+    ]);
+
+    host.addFeatureToLayer.mockClear();
+    layer.setCategoryFilter(["speed-limits"]);
+
+    expect(features(host).map((feature) => feature.id)).toEqual(["speed"]);
+  });
+
   it("re-creates the layer only once, and re-draws cleanly on a later render", () => {
     const host = createHost();
     const layer = openSignMarkerLayer({ sdk: host });
