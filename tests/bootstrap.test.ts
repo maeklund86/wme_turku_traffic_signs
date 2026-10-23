@@ -7,6 +7,7 @@ import {
   CACHE_TTL_MS,
   SIGN_LAYER_NAME,
   SIGN_PANEL_SETTINGS_KEY,
+  SIGN_ROW_SELECTED_CLASS,
   TURKU_EXTENT,
 } from "../src/constants";
 import type { SignDatasetRecord } from "../src/data/sign-dataset-record";
@@ -18,6 +19,7 @@ import { createFakeDatasetStore } from "./support/fake-dataset-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
 import {
   buttonNamed,
+  fullNotesOf,
   listHeaderOf,
   noticeOf,
   paneOf,
@@ -294,6 +296,17 @@ describe("visual overlay wiring", () => {
   const addedFeatures = (fake: ReturnType<typeof createFakeWmeSdk>) =>
     fake.map.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature);
 
+  async function readyWithSigns(signs: readonly TrafficSign[]) {
+    const { fake, resolveSdkInitialized, started } = bootWithSigns(signs);
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(signs.length));
+    const { tabLabel } = await fake.registerScriptTab.mock.results[0]!.value;
+    const pane = await paneOf(fake.registerScriptTab);
+    return { fake, tabLabel, rows: rowsOf(pane), features: addedFeatures(fake) };
+  }
+
   it("creates one marker layer on wme-ready and puts one feature per sign on it", async () => {
     const { fake, resolveSdkInitialized, started } = bootWithSigns([
       sign("321020431", 22.27617187661397, 60.443853785959234),
@@ -314,6 +327,80 @@ describe("visual overlay wiring", () => {
     expect(features.map((feature) => feature.geometry.type)).toEqual(["Point", "Point"]);
     // WGS84 straight through: no reprojection between the registry and the map.
     expect(features[0]!.geometry.coordinates).toEqual([22.27617187661397, 60.443853785959234]);
+  });
+
+  it("opens the script tab and expands the clicked sign row", async () => {
+    const { fake, tabLabel, rows, features } = await readyWithSigns([
+      sign("321020431", 22.27617187661397, 60.443853785959234, {
+        signName: "First sign",
+        notes: "First sign details",
+      }),
+    ]);
+    const [row] = rows;
+    const [feature] = features;
+
+    expect(fake.events.trackLayerEvents).toHaveBeenCalledWith({ layerName: SIGN_LAYER_NAME });
+    fake.emitFeatureClick({ featureId: feature!.id, layerName: SIGN_LAYER_NAME });
+    // The generic map event can follow in a later task; it must not undo selection.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    fake.emitMapClick();
+
+    expect(fake.isScriptTabActive(tabLabel)).toBe(true);
+    expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(true);
+    expect(row!.getAttribute("aria-expanded")).toBe("true");
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(row!.textContent).toContain("First sign");
+    expect(fullNotesOf(row!).hidden).toBe(false);
+  });
+
+  it("replaces the previous marker selection", async () => {
+    const { fake, rows, features } = await readyWithSigns([
+      sign("321020431", 22.27617187661397, 60.443853785959234, { notes: "First sign details" }),
+      sign("321020432", 22.1, 60.4, { notes: "Second sign details" }),
+    ]);
+    const [firstRow, secondRow] = rows;
+    const [firstFeature, secondFeature] = features;
+
+    fake.emitMapClick();
+    fake.emitFeatureClick({ featureId: firstFeature!.id, layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+    fake.emitFeatureClick({ featureId: secondFeature!.id, layerName: SIGN_LAYER_NAME });
+
+    expect(secondRow!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(true);
+    expect(secondRow!.getAttribute("aria-expanded")).toBe("true");
+    expect(firstRow!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
+    expect(firstRow!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("clears the marker selection on an empty map click", async () => {
+    const { fake, rows, features } = await readyWithSigns([
+      sign("321020431", 22.27617187661397, 60.443853785959234, { notes: "Sign details" }),
+    ]);
+    const [row] = rows;
+    const [feature] = features;
+
+    fake.emitMapClick();
+    fake.emitFeatureClick({ featureId: feature!.id, layerName: SIGN_LAYER_NAME });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fake.emitMapClick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(row!.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("ignores feature clicks from other layers", async () => {
+    const { fake, tabLabel, rows, features } = await readyWithSigns([
+      sign("321020431", 22.27617187661397, 60.443853785959234),
+    ]);
+    const [row] = rows;
+    const [feature] = features;
+
+    fake.emitFeatureClick({ featureId: feature!.id, layerName: "another-layer" });
+
+    expect(fake.isScriptTabActive(tabLabel)).toBe(false);
+    expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
   });
 
   it("filters markers from category chips and restores the saved filter on wme-ready", async () => {

@@ -39,6 +39,8 @@ export interface SignMarkerLayerDeps {
    * name and cannot be mirrored structurally.
    */
   sdk: { Map: SignMarkerLayerMap; Events: WmeSDK["Events"] };
+  /** Reports map selection without touching WME's native editing selection. */
+  onSelectionChange?: (sign: TrafficSign | null) => void;
 }
 
 /**
@@ -66,6 +68,8 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
   let hasRendered = false;
   let renderedSigns: readonly TrafficSign[] = [];
   let categoryFilter: readonly SignCategoryKey[] | null = null;
+  let mapClickTimer: ReturnType<typeof setTimeout> | null = null;
+  let markerClickAwaitingMapEvent = false;
 
   return { setVisible, setCategoryFilter, render };
 
@@ -83,6 +87,11 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     });
     layerCreated = true;
     markerPointer.start(SIGN_LAYER_NAME);
+    deps.sdk.Events.on({
+      eventName: "wme-layer-feature-clicked",
+      eventHandler: onFeatureClicked,
+    });
+    deps.sdk.Events.on({ eventName: "wme-map-mouse-click", eventHandler: onMapClicked });
   }
 
   function setVisible(visible: boolean): void {
@@ -135,6 +144,35 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
         },
       });
     }
+  }
+
+  function onFeatureClicked(payload: { featureId: string | number; layerName: string }): void {
+    if (payload.layerName !== SIGN_LAYER_NAME) return;
+    if (mapClickTimer !== null) {
+      clearTimeout(mapClickTimer);
+      mapClickTimer = null;
+    } else {
+      // Every pointer click inside the map also emits wme-map-mouse-click. If
+      // that generic event follows the feature event, consume it regardless of
+      // which task delivers it rather than clearing this marker selection.
+      markerClickAwaitingMapEvent = true;
+    }
+    const clickedSign = renderedSigns.find(
+      (sign, position) => signFeatureId(sign, position) === String(payload.featureId),
+    );
+    if (clickedSign !== undefined) deps.onSelectionChange?.(clickedSign);
+  }
+
+  function onMapClicked(): void {
+    if (markerClickAwaitingMapEvent) {
+      markerClickAwaitingMapEvent = false;
+      return;
+    }
+    if (mapClickTimer !== null) clearTimeout(mapClickTimer);
+    mapClickTimer = setTimeout(() => {
+      mapClickTimer = null;
+      deps.onSelectionChange?.(null);
+    }, 0);
   }
 }
 

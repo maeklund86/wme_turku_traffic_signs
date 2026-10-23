@@ -14,6 +14,7 @@ import {
   SIGN_ROW_NAME_CLASS,
   SIGN_ROW_NOTES_CLASS,
   SIGN_ROW_NOTES_FULL_CLASS,
+  SIGN_ROW_SELECTED_CLASS,
 } from "../constants";
 import { SIGN_PLATE_HEIGHT, SIGN_PLATE_WIDTH } from "../visual-overlay/marker-graphics";
 
@@ -66,6 +67,7 @@ const SIGN_PANEL_CSS = `
   cursor: pointer;
 }
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_ROW_CLASS}:hover { background: rgba(0, 0, 0, 0.06); }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_ROW_SELECTED_CLASS} { background: #dce7f5; outline: 1px solid #466080; }
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_ROW_ICON_CLASS} {
   width: ${SIGN_PLATE_WIDTH}px;
   height: ${SIGN_PLATE_HEIGHT}px;

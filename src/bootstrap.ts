@@ -3,6 +3,7 @@ import type { WmeSDK } from "wme-sdk-typings";
 import { SCRIPT_ID, SCRIPT_NAME } from "./constants";
 import type { DatasetStore } from "./data/dataset-store";
 import type { SignDatasetRecord } from "./data/sign-dataset-record";
+import type { TrafficSign } from "./data/traffic-sign";
 import { openSignDatasetSource } from "./data/sign-dataset-service";
 import { SettingsRepository } from "./settings/settings-repository";
 import { openSignMarkerLayer } from "./visual-overlay/sign-marker-layer";
@@ -50,7 +51,11 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
   const sdk = getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
 
   const settingsRepository = new SettingsRepository(deps.storage);
-  const markerLayer = openSignMarkerLayer({ sdk });
+  let selectPanelSign: (sign: TrafficSign | null) => void = () => undefined;
+  const markerLayer = openSignMarkerLayer({
+    sdk,
+    onSelectionChange: (sign) => selectPanelSign(sign),
+  });
   // The Client Cache is opened (and older schema versions stranded out) as
   // early as possible; the dataset itself loads on wme-ready.
   const signDataset = await openSignDatasetSource({
@@ -66,6 +71,7 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
     // first load and follows every later swap (spec §4.5).
     spatialIndex: { current: () => signDataset.current().index },
   });
+  selectPanelSign = (sign) => signPanel.selectSign(sign);
 
   sdk.Events.on({
     eventName: "wme-ready",

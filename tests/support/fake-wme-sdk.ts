@@ -8,6 +8,8 @@ import { TURKU_EXTENT } from "../../src/constants";
 const SUPPORTED_EVENTS = [
   "wme-ready",
   "wme-map-move-end",
+  "wme-map-mouse-click",
+  "wme-layer-feature-clicked",
   "wme-layer-feature-mouse-enter",
   "wme-layer-feature-mouse-leave",
 ] as const;
@@ -91,8 +93,12 @@ export function createFakeEventBus() {
 export function createFakeWmeSdk() {
   const sidebarHost = document.createElement("div");
   document.body.appendChild(sidebarHost);
+  let activeScriptTab: HTMLElement | null = null;
   const registerScriptTab = vi.fn(async () => {
     const tabLabel = document.createElement("span");
+    tabLabel.addEventListener("click", () => {
+      activeScriptTab = tabLabel;
+    });
     const tabPane = document.createElement("div");
     sidebarHost.append(tabLabel, tabPane);
     return { tabLabel, tabPane };
@@ -117,6 +123,7 @@ export function createFakeWmeSdk() {
   return {
     sdk,
     registerScriptTab,
+    isScriptTabActive: (tabLabel: HTMLElement) => activeScriptTab === tabLabel,
     map: mapSurface.Map,
     layerSwitcher: { addLayerCheckbox },
     events: eventBus,
@@ -126,6 +133,14 @@ export function createFakeWmeSdk() {
     /** Fires a map-move-end, as `sdk.Map` does once the user finishes panning. */
     emitMapMoveEnd: () => {
       eventBus.emit("wme-map-move-end", undefined);
+    },
+    /** Fires an empty map click, as `sdk.Events` does when no layer feature is hit. */
+    emitMapClick: () => {
+      eventBus.emit("wme-map-mouse-click", undefined);
+    },
+    /** Fires a feature click from a tracked layer. */
+    emitFeatureClick: (payload: unknown) => {
+      eventBus.emit("wme-layer-feature-clicked", payload);
     },
     /** Fires a layer hover event, as `sdk.Events` would for a tracked layer. */
     emitFeatureHover: (

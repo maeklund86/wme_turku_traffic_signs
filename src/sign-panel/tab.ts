@@ -10,6 +10,7 @@ import {
   SIGN_VISIBILITY_TOGGLE_CLASS,
 } from "../constants";
 import type { BoundingBox } from "../data/bounding-box";
+import type { TrafficSign } from "../data/traffic-sign";
 import { filterSignsByCategories, type SignCategoryKey } from "../data/sign-categories";
 import type { SpatialIndex } from "../data/spatial-index";
 import { overlapsTurkuCoverage } from "../data/turku-coverage";
@@ -72,12 +73,15 @@ export interface SignPanelTab {
    * reading the previous index.
    */
   refreshSignList(): void;
+  /** Opens the script tab and selects a sign row, or clears the inline detail. */
+  selectSign(sign: TrafficSign | null): void;
 }
 
 /** The tab's own controls, created once per registered pane. */
 interface SignPanelControls {
   /** The pane holding the controls; WME can replace it between readies. */
   pane: HTMLElement;
+  tabLabel: HTMLElement;
   toggle: HTMLInputElement;
   notice: HTMLElement;
   categoryFilter: SignCategoryFilter;
@@ -111,6 +115,13 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       // replaced is rebuilt (and re-populated) by the next ready.
       withAttachedControls(applySignList);
     },
+
+    selectSign(sign: TrafficSign | null): void {
+      withAttachedControls((panelControls) => {
+        if (sign !== null) panelControls.tabLabel.click();
+        panelControls.list.select(sign);
+      });
+    },
   };
 
   /** Registers the tab on the first ready, and again whenever WME replaces its pane. */
@@ -122,6 +133,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       registeredTab.tabLabel.textContent = SIGN_PANEL_TAB_LABEL;
       controls = buildControls(
         deps.document,
+        registeredTab.tabLabel,
         registeredTab.tabPane,
         persistVisibility,
         persistCategoryFilter,
@@ -275,6 +287,7 @@ function isFiniteCoordinate(value: number | undefined): value is number {
 
 function buildControls(
   document: Document,
+  tabLabel: HTMLElement,
   pane: HTMLElement,
   onVisibilityChange: (visible: boolean) => Promise<void>,
   onCategoryFilterChange: (categoryFilter: readonly SignCategoryKey[] | null) => void,
@@ -312,7 +325,7 @@ function buildControls(
     });
   });
 
-  return { pane, toggle, notice, categoryFilter, list };
+  return { pane, tabLabel, toggle, notice, categoryFilter, list };
 }
 
 /**

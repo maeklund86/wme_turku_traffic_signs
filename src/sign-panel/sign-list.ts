@@ -8,6 +8,7 @@ import {
   SIGN_ROW_NAME_CLASS,
   SIGN_ROW_NOTES_CLASS,
   SIGN_ROW_NOTES_FULL_CLASS,
+  SIGN_ROW_SELECTED_CLASS,
 } from "../constants";
 import type { TrafficSign } from "../data/traffic-sign";
 import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
@@ -21,8 +22,16 @@ import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
 export interface SignList {
   /** Replaces the rows with exactly these signs, in the order given. */
   render(signs: readonly TrafficSign[]): void;
+  /** Highlights and expands one row, or clears the current selection. */
+  select(sign: TrafficSign | null): void;
   /** Clears stale rows and removes the count claim when viewport bounds fail. */
   markUnavailable(): void;
+}
+
+interface SignRow {
+  sign: TrafficSign;
+  item: HTMLElement;
+  setSelected(selected: boolean): void;
 }
 
 /** Creates the list's header and rows inside the tab pane. */
@@ -34,14 +43,26 @@ export function openSignList(document: Document, pane: HTMLElement): SignList {
   list.className = SIGN_LIST_CLASS;
 
   pane.append(header, list);
-  return { render, markUnavailable };
+  let signs: readonly TrafficSign[] = [];
+  let rows: SignRow[] = [];
+  let selectedSign: TrafficSign | null = null;
+  return { render, select, markUnavailable };
 
-  function render(signs: readonly TrafficSign[]): void {
+  function render(nextSigns: readonly TrafficSign[]): void {
     // Whole-list replacement, not patching: the viewport decides membership,
     // so every move recalculates membership. Rows remain in fetch order, which
     // keeps the list stable across moves.
-    header.textContent = countText(signs.length);
-    list.replaceChildren(...signs.map((sign) => buildRow(document, sign)));
+    if (selectedSign !== null && !nextSigns.includes(selectedSign)) selectedSign = null;
+    signs = nextSigns;
+    header.textContent = countText(nextSigns.length);
+    rows = nextSigns.map((sign) => buildRow(document, sign));
+    for (const row of rows) row.setSelected(row.sign === selectedSign);
+    list.replaceChildren(...rows.map((row) => row.item));
+  }
+
+  function select(sign: TrafficSign | null): void {
+    selectedSign = sign !== null && signs.includes(sign) ? sign : null;
+    for (const row of rows) row.setSelected(row.sign === selectedSign);
   }
 
   function markUnavailable(): void {
@@ -49,6 +70,9 @@ export function openSignList(document: Document, pane: HTMLElement): SignList {
     // bounds cannot be read; that would claim a stale count as current.
     header.textContent = "Sign count unavailable";
     list.replaceChildren();
+    signs = [];
+    rows = [];
+    selectedSign = null;
   }
 }
 
@@ -57,13 +81,14 @@ function countText(count: number): string {
   return count === 1 ? "1 sign in view" : `${count} signs in view`;
 }
 
-function buildRow(document: Document, sign: TrafficSign): HTMLElement {
+function buildRow(document: Document, sign: TrafficSign): SignRow {
   const item = document.createElement("li");
 
   const row = document.createElement("button");
   row.type = "button";
   row.className = SIGN_ROW_CLASS;
   row.setAttribute("aria-expanded", "false");
+  row.setAttribute("aria-pressed", "false");
 
   const icon = document.createElement("img");
   icon.className = SIGN_ROW_ICON_CLASS;
@@ -95,20 +120,31 @@ function buildRow(document: Document, sign: TrafficSign): HTMLElement {
   const notesDisclosure = notes === null ? null : buildNotesDisclosure(document, notes);
   if (notesDisclosure !== null) body.append(notesDisclosure.preview);
 
+  let notesExpanded = false;
   row.addEventListener("click", () => {
     if (notesDisclosure === null) return;
-    // Inline disclosure: the row toggles its own full note beneath it. The list
-    // stays exactly where it is — no popup, no list replacement (spec §4.5).
-    const expanded = row.getAttribute("aria-expanded") === "true";
-    row.setAttribute("aria-expanded", expanded ? "false" : "true");
-    notesDisclosure.full.hidden = expanded;
+    notesExpanded = !notesExpanded;
+    row.setAttribute("aria-expanded", String(notesExpanded));
+    notesDisclosure.full.hidden = !notesExpanded;
   });
 
   item.append(row);
   // Keep the row and its truncated preview in place; expansion adds the full
   // note beneath them instead of replacing either part of the row.
   if (notesDisclosure !== null) item.append(notesDisclosure.full);
-  return item;
+  return {
+    sign,
+    item,
+    setSelected(selected: boolean): void {
+      row.classList.toggle(SIGN_ROW_SELECTED_CLASS, selected);
+      row.setAttribute("aria-pressed", String(selected));
+      if (notesDisclosure !== null) {
+        notesExpanded = selected;
+        row.setAttribute("aria-expanded", String(notesExpanded));
+        notesDisclosure.full.hidden = !notesExpanded;
+      }
+    },
+  };
 }
 
 interface NotesDisclosure {

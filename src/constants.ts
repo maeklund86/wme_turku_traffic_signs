@@ -36,6 +36,7 @@ export const SIGN_LIST_HEADER_CLASS = "turku-signs-list-header";
 /** Wrapper for all Sign Panel content except the permanent attribution footer. */
 export const SIGN_PANEL_CONTENT_CLASS = "turku-signs-content";
 export const SIGN_ROW_CLASS = "turku-signs-row";
+export const SIGN_ROW_SELECTED_CLASS = "turku-signs-row-selected";
 export const SIGN_ROW_ICON_CLASS = "turku-signs-row-icon";
 export const SIGN_ROW_CODE_CLASS = "turku-signs-row-code";
 /** Column holding the name, the notes preview, or neither. */
