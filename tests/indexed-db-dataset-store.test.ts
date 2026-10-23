@@ -44,7 +44,11 @@ async function rawEntryKeys(): Promise<string[]> {
         resolve(collected);
         return;
       }
-      collected.push(String(cursor.key));
+      if (typeof cursor.key !== "string") {
+        reject(new Error("Expected Client Cache entry key to be a string"));
+        return;
+      }
+      collected.push(cursor.key);
       cursor.continue();
     };
     cursorRequest.onerror = () => reject(cursorRequest.error);

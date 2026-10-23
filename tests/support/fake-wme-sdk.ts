@@ -76,7 +76,8 @@ export function createFakeEventBus() {
       };
     }),
     emit: (eventName: string, payload: unknown): void => {
-      for (const handler of [...(handlers.get(eventName) ?? [])]) handler(payload);
+      const registered = Array.from(handlers.get(eventName) ?? []);
+      for (const handler of registered) handler(payload);
     },
   };
 }

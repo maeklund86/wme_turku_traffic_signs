@@ -130,7 +130,7 @@ function gmPageBodyFetcher(
 ): PageBodyFetcher {
   return (url: string) =>
     new Promise<string>((resolve, reject) => {
-      xmlHttpRequest({
+      void xmlHttpRequest({
         method: "GET",
         url,
         onload: (response) => resolve(response.responseText),

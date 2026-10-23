@@ -107,7 +107,7 @@ async function deleteEntriesUnderOlderSchemaVersions(store: IDBObjectStore): Pro
   const transaction = store.transaction;
   const keys = await request(store.getAllKeys());
   for (const key of keys) {
-    if (isOlderSchemaDatasetKey(String(key))) {
+    if (typeof key === "string" && isOlderSchemaDatasetKey(key)) {
       await request(store.delete(key));
     }
   }
