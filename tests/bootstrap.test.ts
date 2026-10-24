@@ -568,15 +568,13 @@ describe("Sign Panel visibility control", () => {
       "Outside Turku coverage — the sign registry only covers the City of Turku.",
     );
     expect(toggleOf(pane).disabled).toBe(true);
-    // What keeps markers off a map panned away from Turku is not a render gate:
-    // it is that every registered sign lies inside the coverage extent, so a
-    // viewport outside it draws nothing. Ingestion's bbox query guarantees it;
-    // this pins it at the layer (spec §4.5, AC-17).
+    // The marker layer queries the viewport before adding features. A view
+    // outside Turku therefore has no registered marker features either.
     const [minLon, minLat, maxLon, maxLat] = TURKU_EXTENT;
     const coordinates = fake.map.addFeatureToLayer.mock.calls.map(
       ([{ feature }]) => feature.geometry.coordinates,
     );
-    expect(coordinates).toHaveLength(1);
+    expect(coordinates).toHaveLength(0);
     for (const [longitude, latitude] of coordinates) {
       expect(longitude).toBeGreaterThanOrEqual(minLon);
       expect(longitude).toBeLessThanOrEqual(maxLon);
@@ -635,7 +633,7 @@ describe("viewport-driven sign list wiring (AC-20)", () => {
         record: record("2026-10-11T19:50:25.6808150Z", NOW, [
           sign("1", 22.2, 60.4),
           sign("2", 22.3, 60.5),
-          // East of the default test viewport: a marker, but never a list row.
+          // East of the default test viewport: neither a marker nor a list row.
           sign("far", 23.5, 61.0),
         ]),
       }),
@@ -644,10 +642,10 @@ describe("viewport-driven sign list wiring (AC-20)", () => {
     resolveSdkInitialized();
     await started;
     fake.emitWmeReady();
-    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(2));
 
     const pane = await paneOf(fake.registerScriptTab);
-    // Two of the three drawn markers lie inside the extent, and the load may
+    // Both drawn markers lie inside the extent, and the load may
     // resolve after the ready rendered the list from an empty index.
     await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("2 signs in view"));
     expect(rowsOf(pane)).toHaveLength(2);

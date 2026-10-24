@@ -48,7 +48,21 @@ export const SIGN_PLATE_FONT_FAMILY = "Arial, Helvetica, sans-serif";
 export const SIGN_PLATE_INNER_WIDTH = SIGN_PLATE_WIDTH - 2 * SIGN_PLATE_BORDER_WIDTH;
 
 /** The post every marker stands on, with its subtle drop shadow baked in. */
-export const SIGN_POST_GRAPHIC: string = svgDataUri(postSvg());
+const postGraphics = new Map<number, string>();
+export const SIGN_POST_GRAPHIC = signPostGraphic(SIGN_POST_CANVAS_HEIGHT);
+
+/** A short connector or post segment between a sign icon and its source point. */
+export function signPostGraphic(height: number, shadowAtTop = false, hasShadow = true): string {
+  const normalizedHeight = Math.max(hasShadow ? SIGN_POST_CANVAS_HEIGHT : 1, Math.ceil(height));
+  const cacheKey = normalizedHeight * 4 + Number(shadowAtTop) * 2 + Number(hasShadow);
+  const existing = postGraphics.get(cacheKey);
+  if (existing !== undefined) return existing;
+
+  const graphic = svgDataUri(postSvg(normalizedHeight, shadowAtTop, hasShadow));
+  if (postGraphics.size >= 256) postGraphics.clear();
+  postGraphics.set(cacheKey, graphic);
+  return graphic;
+}
 
 /**
  * The bordered plate a sign with no official SVG renders on the same post:
@@ -59,20 +73,28 @@ export function fallbackPlateGraphic(signCode: string): string {
   return svgDataUri(plateSvg(signCode));
 }
 
-function postSvg(): string {
-  // The shadow ellipse is drawn first so the post overlays it at the foot.
+function postSvg(height: number, shadowAtTop: boolean, hasShadow: boolean): string {
+  // The shadow ellipse is drawn first so the post overlays it at the source point.
+  const shadowY = shadowAtTop ? 1.4 : height - 1.4;
+  const postY = hasShadow && shadowAtTop ? 2 : 0;
+  const postHeight = height - (hasShadow ? 2 : 0);
+  const shadow = hasShadow
+    ? `<defs><radialGradient id="turku-sign-post-shadow" cx="50%" cy="50%" r="50%">` +
+      `<stop offset="0%" stop-color="${SIGN_POST_SHADOW_COLOR}" ` +
+      `stop-opacity="${SIGN_POST_SHADOW_OPACITY}"/>` +
+      `<stop offset="100%" stop-color="${SIGN_POST_SHADOW_COLOR}" stop-opacity="0"/>` +
+      `</radialGradient></defs>` +
+      `<ellipse cx="5" cy="${shadowY}" rx="4.6" ry="1.8" ` +
+      `fill="url(#turku-sign-post-shadow)"/>`
+    : "";
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${SIGN_POST_CANVAS_WIDTH}" ` +
-    `height="${SIGN_POST_CANVAS_HEIGHT}" viewBox="0 0 ${SIGN_POST_CANVAS_WIDTH} ` +
-    `${SIGN_POST_CANVAS_HEIGHT}">` +
-    `<defs><radialGradient id="turku-sign-post-shadow" cx="50%" cy="50%" r="50%">` +
-    `<stop offset="0%" stop-color="${SIGN_POST_SHADOW_COLOR}" ` +
-    `stop-opacity="${SIGN_POST_SHADOW_OPACITY}"/>` +
-    `<stop offset="100%" stop-color="${SIGN_POST_SHADOW_COLOR}" stop-opacity="0"/>` +
-    `</radialGradient></defs>` +
-    `<ellipse cx="5" cy="10.6" rx="4.6" ry="1.8" fill="url(#turku-sign-post-shadow)"/>` +
-    `<rect x="4" y="0" width="${SIGN_POST_WIDTH}" height="${SIGN_POST_HEIGHT}" rx="1" ` +
-    `fill="${SIGN_POST_COLOR}"/>` +
+    `height="${height}" viewBox="0 0 ${SIGN_POST_CANVAS_WIDTH} ${height}">` +
+    shadow +
+    (postHeight > 0
+      ? `<rect x="4" y="${postY}" width="${SIGN_POST_WIDTH}" height="${postHeight}" rx="1" ` +
+        `fill="${SIGN_POST_COLOR}"/>`
+      : "") +
     `</svg>`
   );
 }

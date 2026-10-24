@@ -5,17 +5,28 @@ import type {
   WmeSDK,
 } from "wme-sdk-typings";
 
+import type { BoundingBox } from "../data/bounding-box";
+import { buildSpatialIndex, type SpatialIndex } from "../data/spatial-index";
 import type { TrafficSign } from "../data/traffic-sign";
 import { filterSignsByCategories, type SignCategoryKey } from "../data/sign-categories";
 import { SIGN_LAYER_NAME } from "../constants";
 import {
   MARKER_KIND_PROPERTY,
+  MARKER_ICON_Y_OFFSET_PROPERTY,
+  MARKER_POST_HEIGHT_PROPERTY,
+  MARKER_POST_Y_OFFSET_PROPERTY,
+  MARKER_POST_SHADOW_AT_TOP_PROPERTY,
+  MARKER_POST_HAS_SHADOW_PROPERTY,
   resolveSignMarkerGraphic,
   SIGN_CODE_PROPERTY,
   SIGN_MARKER_STYLE_CONTEXT,
   SIGN_MARKER_STYLE_RULES,
 } from "./marker-style";
 import { openMarkerPointer } from "./marker-pointer";
+import { layoutMarkerIcons, type MarkerPlacement } from "./marker-layout";
+import { SIGN_ICON_SIZE, SIGN_POST_CANVAS_HEIGHT } from "./marker-graphics";
+
+const MARKER_QUERY_PADDING_PIXELS = 32;
 
 /** The `sdk.Map` calls the Visual Overlay makes (spec §4.4, §7). */
 export interface SignMarkerLayerMap {
@@ -28,6 +39,7 @@ export interface SignMarkerLayerMap {
   addFeatureToLayer(args: { layerName: string; feature: SdkFeature }): void;
   removeAllFeaturesFromLayer(args: { layerName: string }): void;
   setLayerVisibility(args: { layerName: string; visibility: boolean }): void;
+  getMapExtent(): number[];
   /** The map element the marker pointer puts its cursor on (AC-10). */
   getMapViewportElement(): HTMLElement;
 }
@@ -54,7 +66,7 @@ export interface SignMarkerLayer {
   setVisible(visible: boolean): void;
   /** Changes which code-prefix categories render, without reloading the dataset. */
   setCategoryFilter(categoryFilter: readonly SignCategoryKey[] | null): void;
-  /** Draws one marker per selected sign, replacing whatever was drawn before. */
+  /** Replaces the viewport's filtered markers, preserving each source coordinate. */
   render(signs: readonly TrafficSign[]): void;
 }
 
@@ -67,6 +79,8 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
   let layerCreated = false;
   let hasRendered = false;
   let renderedSigns: readonly TrafficSign[] = [];
+  let renderedIndex: SpatialIndex = buildSpatialIndex([]);
+  let renderedPositions = new Map<TrafficSign, number>();
   let categoryFilter: readonly SignCategoryKey[] | null = null;
   let mapClickTimer: ReturnType<typeof setTimeout> | null = null;
   let markerClickAwaitingMapEvent = false;
@@ -92,6 +106,7 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
       eventHandler: onFeatureClicked,
     });
     deps.sdk.Events.on({ eventName: "wme-map-mouse-click", eventHandler: onMapClicked });
+    deps.sdk.Events.on({ eventName: "wme-map-move-end", eventHandler: onMapMoved });
   }
 
   function setVisible(visible: boolean): void {
@@ -112,8 +127,14 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
 
   function render(signs: readonly TrafficSign[]): void {
     renderedSigns = signs;
+    renderedIndex = buildSpatialIndex(signs);
+    renderedPositions = new Map(signs.map((sign, position) => [sign, position]));
     hasRendered = true;
     renderVisibleSigns();
+  }
+
+  function onMapMoved(): void {
+    if (hasRendered) renderVisibleSigns();
   }
 
   function renderVisibleSigns(): void {
@@ -121,12 +142,29 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     // WME keeps the layer across a wme-ready, so a repeat render replaces the
     // markers instead of stacking a second set on top of the first.
     map.removeAllFeaturesFromLayer({ layerName: SIGN_LAYER_NAME });
-    const visibleSigns =
-      categoryFilter === null
-        ? null
-        : new Set(filterSignsByCategories(renderedSigns, categoryFilter));
-    for (const [position, sign] of renderedSigns.entries()) {
-      if (visibleSigns !== null && !visibleSigns.has(sign)) continue;
+    const rawExtent = map.getMapExtent();
+    const extent = isBoundingBox(rawExtent) ? rawExtent : null;
+    const viewportRect = map.getMapViewportElement().getBoundingClientRect();
+    const queryBounds =
+      extent === null ? null : expandBounds(extent, viewportRect.width, viewportRect.height);
+    const signsInView = queryBounds === null ? renderedSigns : renderedIndex.query(queryBounds);
+    const visibleSigns = filterSignsByCategories(signsInView, categoryFilter);
+    const placements: readonly MarkerPlacement[] =
+      extent === null
+        ? visibleSigns.map(() => ({
+            iconYOffset: -(SIGN_POST_CANVAS_HEIGHT + SIGN_ICON_SIZE / 2),
+            postHeight: SIGN_POST_CANVAS_HEIGHT,
+            postYOffset: -SIGN_POST_CANVAS_HEIGHT / 2,
+            postShadowAtTop: false,
+            postHasShadow: true,
+          }))
+        : layoutMarkerIcons(visibleSigns, {
+            bounds: extent,
+            width: viewportRect.width,
+            height: viewportRect.height,
+          });
+    for (const [visiblePosition, sign] of visibleSigns.entries()) {
+      const position = renderedPositions.get(sign) ?? visiblePosition;
       // Coordinates go straight through: the Trimble OGC API serves GeoJSON
       // Point WGS84 and the SDK speaks WGS84, so there is nothing to reproject
       // (AC-9).
@@ -140,6 +178,13 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
           properties: {
             [SIGN_CODE_PROPERTY]: sign.signCode,
             [MARKER_KIND_PROPERTY]: resolveSignMarkerGraphic(sign.signCode).kind,
+            [MARKER_ICON_Y_OFFSET_PROPERTY]: placements[visiblePosition]!.iconYOffset,
+            [MARKER_POST_HEIGHT_PROPERTY]: placements[visiblePosition]!.postHeight,
+            [MARKER_POST_Y_OFFSET_PROPERTY]: placements[visiblePosition]!.postYOffset,
+            [MARKER_POST_SHADOW_AT_TOP_PROPERTY]: placements[visiblePosition]!.postShadowAtTop
+              ? 1
+              : 0,
+            [MARKER_POST_HAS_SHADOW_PROPERTY]: placements[visiblePosition]!.postHasShadow ? 1 : 0,
           },
         },
       });
@@ -174,6 +219,23 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
       deps.onSelectionChange?.(null);
     }, 0);
   }
+}
+
+function isBoundingBox(value: readonly number[]): value is BoundingBox {
+  return value.length === 4 && value.every(Number.isFinite);
+}
+
+function expandBounds(bounds: BoundingBox, width: number, height: number): BoundingBox {
+  const [left, bottom, right, top] = bounds;
+  if (width <= 0 || height <= 0) return bounds;
+  const longitudePadding = ((right - left) * MARKER_QUERY_PADDING_PIXELS) / width;
+  const latitudePadding = ((top - bottom) * MARKER_QUERY_PADDING_PIXELS) / height;
+  return [
+    left - longitudePadding,
+    bottom - latitudePadding,
+    right + longitudePadding,
+    top + latitudePadding,
+  ];
 }
 
 function sameCategoryFilter(

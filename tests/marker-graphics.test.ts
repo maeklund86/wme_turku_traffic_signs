@@ -10,6 +10,7 @@ import {
   SIGN_PLATE_WIDTH,
   SIGN_POST_GRAPHIC,
   SIGN_POST_WIDTH,
+  signPostGraphic,
 } from "../src/visual-overlay/marker-graphics";
 
 describe("fallback plate graphic (AC-11)", () => {
@@ -85,6 +86,21 @@ describe("neutral post graphic (AC-10)", () => {
     // The post's only rectangle is the 2 px bar itself — never a plate.
     const widths = [...post.matchAll(/<rect[^>]*width="(\d+)"/g)].map((match) => Number(match[1]));
     expect(widths).toEqual([SIGN_POST_WIDTH]);
+  });
+
+  it("draws short inter-sign connectors without a source-point shadow", () => {
+    const connector = decodeSvg(signPostGraphic(6, false, false));
+    expect(connector).toContain('width="10"');
+    expect(connector).toContain('height="6"');
+    expect(connector).toContain('<rect x="4" y="0" width="2" height="6"');
+    expect(connector).not.toContain("radialGradient");
+    const downward = decodeSvg(signPostGraphic(12, true));
+    expect(downward).toContain('cy="1.4"');
+    expect(downward).toContain('y="2"');
+    const interSignConnector = decodeSvg(signPostGraphic(4, false, false));
+    expect(interSignConnector).toContain('height="4"');
+    expect(interSignConnector).toContain('<rect x="4" y="0" width="2" height="4"');
+    expect(interSignConnector).not.toContain("radialGradient");
   });
 });
 

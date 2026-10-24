@@ -87,6 +87,7 @@ Per [#6](https://github.com/maeklund86/wme_turku_traffic_signs/issues/6) and [#1
 
 - Layer created once via `sdk.Map.addLayer({ layerName, styleContext, styleRules, zIndexing })`, features added via `sdk.Map.addFeatureToLayer` (one feature per sign, WGS84).
 - **Marker:** the official sign SVG rendered **bare** — Finnish signs carry their own shape and colour, so no plate, no background, no category colour. Anchored on a **thin neutral post** (~2 px, grey) with a subtle drop shadow. Fixed ~22 px icon size, tuned for legibility at typical editor zooms. Clickable (`cursor: pointer`).
+- When sign icons overlap at the current viewport scale, lay them out as a stable vertical screen-space stack. Short neutral connector segments link adjacent icons, with the stack anchored to its source point; no connector runs behind a neighboring icon. Recompute on map movement and keep every feature's GeoJSON geometry at its original WGS84 point.
 - **Missing-asset fallback:** when no official SVG resolves for a sign code, render a **bordered fallback plate** on the same post: light fill, dark 1.5 px border, rounded corners, containing the sign code with a tiny "no icon" sublabel. The sign stays locatable and identifiable; the fallback never invents a substitute icon and never hides the sign.
 - **Assets** ([#3](https://github.com/maeklund86/wme_turku_traffic_signs/issues/3)): official CC0 (public domain) SVGs published by the Finnish Transport Infrastructure Agency (Väylävirasto), `finnishtransportagency/liikennemerkit` — post-2020 signs in `collections/new_signs/svg`, pre-2020 in `collections/old_signs/svg`. File basenames match `Varustelaji_koodi` directly. Delivered on demand via jsDelivr CDN pinned to commit SHA `35be7a6593e70c8ed5f4e3ef54372d69a3fef558` (immutable, long-term cached, CORS-enabled); an SVG data-URI fallback covers unmatched codes.
 - **Style vocabulary:** SDK `FeatureStyle` is the OL2 style vocabulary — `externalGraphic`, `graphicWidth`, `label` etc. still apply.
@@ -170,6 +171,7 @@ Testable; verify in a WME test environment with the script installed via Tamperm
 23. **AC-23** — The footer "Traffic sign data © City of Turku, CC BY 4.0" is permanently visible in every mode, including private testing, and cannot be dismissed.
 24. **AC-24** — All UI labels are English; all sign data (codes, names, notes) is verbatim Finnish registry values.
 25. **AC-25** — No code path calls `Editing.setSelection` or writes to any Waze object; nothing in the script mutates map data.
+26. **AC-26** — Overlapping marker icons are laid out without covering one another; short connector segments link the stack to its source point without crossing other icons; map movement recomputes the layout without changing feature coordinates.
 
 ## 7. Implementation handoff notes
 

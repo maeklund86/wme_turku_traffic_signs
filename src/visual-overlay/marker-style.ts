@@ -7,7 +7,7 @@ import {
   SIGN_PLATE_WIDTH,
   SIGN_POST_CANVAS_HEIGHT,
   SIGN_POST_CANVAS_WIDTH,
-  SIGN_POST_GRAPHIC,
+  signPostGraphic,
 } from "./marker-graphics";
 import { officialSignIconUrl } from "./sign-icon";
 
@@ -22,6 +22,17 @@ export type MarkerKind = typeof OFFICIAL_MARKER | typeof FALLBACK_MARKER;
 
 /** Style-context key the `${...}` placeholder below expands from. */
 export const SIGN_GRAPHIC_CONTEXT_KEY = "getSignGraphic";
+export const SIGN_GRAPHIC_Y_OFFSET_CONTEXT_KEY = "getSignGraphicYOffset";
+export const SIGN_POST_GRAPHIC_CONTEXT_KEY = "getSignPostGraphic";
+export const SIGN_POST_HEIGHT_CONTEXT_KEY = "getSignPostHeight";
+export const SIGN_POST_Y_OFFSET_CONTEXT_KEY = "getSignPostYOffset";
+
+/** Feature property carrying the screen-space vertical icon position. */
+export const MARKER_ICON_Y_OFFSET_PROPERTY = "markerIconYOffset";
+export const MARKER_POST_HEIGHT_PROPERTY = "markerPostHeight";
+export const MARKER_POST_Y_OFFSET_PROPERTY = "markerPostYOffset";
+export const MARKER_POST_SHADOW_AT_TOP_PROPERTY = "markerPostShadowAtTop";
+export const MARKER_POST_HAS_SHADOW_PROPERTY = "markerPostHasShadow";
 
 type MarkerStyle = SdkFeatureStyleRule["style"];
 
@@ -53,11 +64,11 @@ export function resolveSignMarkerGraphic(signCode: string): SignMarkerGraphic {
  * translucent marker would bleed onto its neighbours.
  */
 const MARKER_BASE: MarkerStyle = {
-  backgroundGraphic: SIGN_POST_GRAPHIC,
+  backgroundGraphic: `\${${SIGN_POST_GRAPHIC_CONTEXT_KEY}}`,
   backgroundWidth: SIGN_POST_CANVAS_WIDTH,
-  backgroundHeight: SIGN_POST_CANVAS_HEIGHT,
+  backgroundHeight: `\${${SIGN_POST_HEIGHT_CONTEXT_KEY}}`,
   backgroundXOffset: -SIGN_POST_CANVAS_WIDTH / 2,
-  backgroundYOffset: -SIGN_POST_CANVAS_HEIGHT / 2,
+  backgroundYOffset: `\${${SIGN_POST_Y_OFFSET_CONTEXT_KEY}}`,
   graphicOpacity: 1,
   cursor: "pointer",
 };
@@ -73,7 +84,7 @@ const OFFICIAL_ICON_STYLE: MarkerStyle = {
   graphicHeight: SIGN_ICON_SIZE,
   // OL2 centres a graphic on the sign's point; lift it by the post's height so
   // the icon rests on top of the post instead of straddling it.
-  graphicYOffset: -(SIGN_POST_CANVAS_HEIGHT + SIGN_ICON_SIZE / 2),
+  graphicYOffset: `\${${SIGN_GRAPHIC_Y_OFFSET_CONTEXT_KEY}}`,
 };
 
 /** Missing asset: the code plate, on the same post. */
@@ -82,7 +93,7 @@ const FALLBACK_PLATE_STYLE: MarkerStyle = {
   externalGraphic: `\${${SIGN_GRAPHIC_CONTEXT_KEY}}`,
   graphicWidth: SIGN_PLATE_WIDTH,
   graphicHeight: SIGN_PLATE_HEIGHT,
-  graphicYOffset: -(SIGN_POST_CANVAS_HEIGHT + SIGN_PLATE_HEIGHT / 2),
+  graphicYOffset: `\${${SIGN_GRAPHIC_Y_OFFSET_CONTEXT_KEY}}`,
 };
 
 /**
@@ -113,4 +124,32 @@ export const SIGN_MARKER_STYLE_CONTEXT: SdkFeatureStyleContext = {
     if (typeof signCode !== "string") return undefined;
     return resolveSignMarkerGraphic(signCode).graphic;
   },
+  [SIGN_GRAPHIC_Y_OFFSET_CONTEXT_KEY]: ({ feature }) =>
+    markerIconYOffset(feature?.properties?.[MARKER_ICON_Y_OFFSET_PROPERTY]),
+  [SIGN_POST_HEIGHT_CONTEXT_KEY]: ({ feature }) =>
+    numericProperty(feature?.properties?.[MARKER_POST_HEIGHT_PROPERTY], SIGN_POST_CANVAS_HEIGHT),
+  [SIGN_POST_Y_OFFSET_CONTEXT_KEY]: ({ feature }) =>
+    numericProperty(
+      feature?.properties?.[MARKER_POST_Y_OFFSET_PROPERTY],
+      -SIGN_POST_CANVAS_HEIGHT / 2,
+    ),
+  [SIGN_POST_GRAPHIC_CONTEXT_KEY]: ({ feature }) => {
+    const height = numericProperty(
+      feature?.properties?.[MARKER_POST_HEIGHT_PROPERTY],
+      SIGN_POST_CANVAS_HEIGHT,
+    );
+    const shadowAtTop = feature?.properties?.[MARKER_POST_SHADOW_AT_TOP_PROPERTY] === 1;
+    const hasShadow = feature?.properties?.[MARKER_POST_HAS_SHADOW_PROPERTY] !== 0;
+    return signPostGraphic(height, shadowAtTop, hasShadow);
+  },
 };
+
+function markerIconYOffset(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : -(SIGN_POST_CANVAS_HEIGHT + SIGN_ICON_SIZE / 2);
+}
+
+function numericProperty(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
