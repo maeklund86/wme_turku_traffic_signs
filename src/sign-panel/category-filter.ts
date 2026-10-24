@@ -45,7 +45,12 @@ export function openSignCategoryFilter(
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = SIGN_CATEGORY_CHIP_CLASS;
-    chip.textContent = category.label;
+    if (category.displayCode !== null) {
+      const code = document.createElement("code");
+      code.textContent = category.displayCode;
+      chip.append(code, document.createTextNode(" "));
+    }
+    chip.append(document.createTextNode(category.label));
     chip.setAttribute("aria-pressed", "true");
     chip.addEventListener("click", () => {
       if (selected.has(category.key)) selected.delete(category.key);

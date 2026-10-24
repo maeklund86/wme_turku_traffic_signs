@@ -39,11 +39,13 @@ export const SIGN_ROW_CLASS = "turku-signs-row";
 export const SIGN_ROW_SELECTED_CLASS = "turku-signs-row-selected";
 export const SIGN_ROW_ICON_CLASS = "turku-signs-row-icon";
 export const SIGN_ROW_CODE_CLASS = "turku-signs-row-code";
-/** Column holding the name, the notes preview, or neither. */
+/** Column holding the sign name and Sign Category. */
 export const SIGN_ROW_BODY_CLASS = "turku-signs-row-body";
 export const SIGN_ROW_NAME_CLASS = "turku-signs-row-name";
-/** The one-line, ellipsised notes preview; absent when the sign has none. */
-export const SIGN_ROW_NOTES_CLASS = "turku-signs-row-notes";
+/** The Sign Category the row's sign code maps to. */
+export const SIGN_ROW_CATEGORY_CLASS = "turku-signs-row-category";
+/** Disclosure arrow shown only for a row with an extra note. */
+export const SIGN_ROW_DISCLOSURE_CLASS = "turku-signs-row-disclosure";
 /** The full notes a row expands to; absent when the sign has none. */
 export const SIGN_ROW_NOTES_FULL_CLASS = "turku-signs-row-notes-full";
 

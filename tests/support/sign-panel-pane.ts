@@ -24,9 +24,10 @@ export async function paneOf(
 
 /** Finds a Sign Panel button by its visible label. */
 export function buttonNamed(pane: HTMLElement, label: string): HTMLButtonElement {
-  const button = [...pane.querySelectorAll<HTMLButtonElement>("button")].find(
-    (candidate) => candidate.textContent?.trim() === label,
-  );
+  const button = [...pane.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => {
+    const text = candidate.textContent?.trim();
+    return text === label || text?.endsWith(label);
+  });
   if (!button) throw new Error(`Sign Panel button "${label}" was not rendered`);
   return button;
 }

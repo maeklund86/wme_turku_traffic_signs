@@ -8,6 +8,10 @@ A browser-based tool assisting Waze Map Editor volunteers in Turku by providing 
 A physical road sign recorded in the municipal sign registry, identified by its Finnish national sign code and geographic position.
 _Avoid_: Road sign, marker, placard
 
+**Sign Code Prefix**:
+The leading part of a Traffic Sign's Finnish national sign code used to map it to a Sign Category.
+_Avoid_: Sign code, category code
+
 **Visual Overlay**:
 A toggleable map layer rendered within WME that displays sign markers and attribute popups for editor reference.
 _Avoid_: Sign bot, auto-editor, patcher

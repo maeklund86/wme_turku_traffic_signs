@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { openSignPanelTab } from "../src/sign-panel/tab";
 import {
+  SIGN_CATEGORY_CHIP_CLASS,
   SIGN_PANEL_CONTENT_CLASS,
+  SIGN_ROW_CATEGORY_CLASS,
   SIGN_ROW_CODE_CLASS,
+  SIGN_ROW_DISCLOSURE_CLASS,
   SIGN_ROW_ICON_CLASS,
   SIGN_ROW_NAME_CLASS,
-  SIGN_ROW_NOTES_CLASS,
   SIGN_ROW_NOTES_FULL_CLASS,
+  SIGN_ROW_CLASS,
 } from "../src/constants";
 import { buildSpatialIndex } from "../src/data/spatial-index";
 import type { TrafficSign } from "../src/data/traffic-sign";
@@ -437,6 +440,109 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     );
   });
 
+  it("shows each sign's mapped category below its name", async () => {
+    const signs = [
+      sign("warning", 22.25, 60.45, { signCode: "A1" }),
+      sign("priority", 22.251, 60.45, { signCode: "B1" }),
+      sign("speed", 22.252, 60.45, { signCode: "C32_2", notes: "Speed note" }),
+      sign("parking-c", 22.253, 60.45, { signCode: "C38" }),
+      sign("restriction", 22.254, 60.45, { signCode: "C45" }),
+      sign("mandatory", 22.255, 60.45, { signCode: "D1" }),
+      sign("rules", 22.256, 60.45, { signCode: "E1" }),
+      sign("parking-e", 22.257, 60.45, { signCode: "E2" }),
+      sign("directions", 22.258, 60.45, { signCode: "F1" }),
+      sign("parking-f", 22.259, 60.45, { signCode: "F46" }),
+      sign("services", 22.26, 60.45, { signCode: "G1" }),
+      sign("supplementary", 22.261, 60.45, { signCode: "H1" }),
+      sign("other", 22.262, 60.45, { signCode: "ZZ99" }),
+    ];
+    const { registerScriptTab, tab } = await openTab({ signs });
+
+    await tab.refresh();
+
+    const rows = rowsOf(await paneOf(registerScriptTab));
+    expect(
+      rows.map((row) => row.querySelector(`.${SIGN_ROW_CATEGORY_CLASS}`)?.textContent),
+    ).toEqual([
+      "Warning signs",
+      "Priority",
+      "Speed limits",
+      "Parking",
+      "Other restrictions",
+      "Mandatory signs",
+      "Traffic rules",
+      "Parking",
+      "Direction signs",
+      "Parking",
+      "Service signs",
+      "Supplementary signs",
+      "Other",
+    ]);
+
+    const name = rows[2]!.querySelector(`.${SIGN_ROW_NAME_CLASS}`)!;
+    const category = rows[2]!.querySelector(`.${SIGN_ROW_CATEGORY_CLASS}`)!;
+    expect(name.nextElementSibling).toBe(category);
+    expect(category.nextElementSibling).toBeNull();
+    expect(rows[2]!.textContent).not.toContain("Speed note");
+  });
+
+  it("adds space between visible sign rows", async () => {
+    const { registerScriptTab, tab } = await openTab({
+      signs: [sign("first", 22.25, 60.45), sign("second", 22.26, 60.45)],
+    });
+
+    await tab.refresh();
+
+    const rows = rowsOf(await paneOf(registerScriptTab));
+    expect(getComputedStyle(rows[1]!.parentElement!).marginTop).toBe("8px");
+  });
+
+  it("keeps expanded sign rows content-sized against host styles", async () => {
+    const { registerScriptTab, tab } = await openTab({
+      signs: [sign("first", 22.25, 60.45, { notes: "Additional sign details" })],
+    });
+    const hostStyles = document.createElement("style");
+    hostStyles.textContent = "button { height: 32px !important; }";
+    document.head.prepend(hostStyles);
+
+    try {
+      await tab.refresh();
+      const [row] = rowsOf(await paneOf(registerScriptTab));
+      row!.click();
+
+      expect(row!.getAttribute("aria-expanded")).toBe("true");
+      const panelStyles = [...document.head.querySelectorAll("style")].find((style) =>
+        style.textContent?.includes(`.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_ROW_CLASS} {`),
+      );
+      expect(panelStyles?.textContent).toContain("height: auto !important;");
+    } finally {
+      hostStyles.remove();
+    }
+  });
+
+  it("shows compact sign-code prefixes on the category filters", async () => {
+    const { registerScriptTab, tab } = await openTab();
+
+    await tab.refresh();
+
+    const chips = [
+      ...(await paneOf(registerScriptTab)).querySelectorAll(`.${SIGN_CATEGORY_CHIP_CLASS}`),
+    ];
+    expect(chips.map((chip) => chip.textContent?.trim())).toEqual([
+      "C32–36.7 Speed limits",
+      "B Priority",
+      "C37–44, E2–4, F46 Parking",
+      "A Warning signs",
+      "C Other restrictions",
+      "D Mandatory signs",
+      "E Traffic rules",
+      "F Direction signs",
+      "G Service signs",
+      "H Supplementary signs",
+      "Other",
+    ]);
+  });
+
   it("draws the code plate for a code the pinned collection has no SVG for", async () => {
     const { registerScriptTab, tab } = await openTab({
       signs: [sign("nearby", 22.25, 60.45, { signCode: "ZZ99" })],
@@ -462,7 +568,7 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     }
   });
 
-  it("expands a row inline to the full note, keeping the list in place", async () => {
+  it("shows the extra note only after its list row is clicked", async () => {
     const note = "Pysäköinti kielletty — katualueella, poikkeus poliisin luvalla";
     const { registerScriptTab, tab } = await openTab({
       signs: [sign("nearby", 22.25, 60.45, { notes: note })],
@@ -472,8 +578,10 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     const pane = await paneOf(registerScriptTab);
     const [row] = rowsOf(pane);
-    const preview = row!.querySelector<HTMLElement>(`.${SIGN_ROW_NOTES_CLASS}`)!;
-    expect(preview.textContent).toBe(note);
+    expect(row!.textContent).not.toContain(note);
+    const indicator = row!.querySelector<HTMLElement>(`.${SIGN_ROW_DISCLOSURE_CLASS}`)!;
+    expect(indicator.textContent).toBe("▸");
+    expect(indicator.getAttribute("aria-hidden")).toBe("true");
 
     const fullNotes = fullNotesOf(row!);
     expect(fullNotes.textContent).toBe(note);
@@ -483,8 +591,8 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     row!.click();
 
     expect(row!.getAttribute("aria-expanded")).toBe("true");
+    expect(indicator.textContent).toBe("▾");
     expect(fullNotes.hidden).toBe(false);
-    expect(preview.hidden).toBe(false);
     expect(row!.nextElementSibling).toBe(fullNotes);
     // Inline disclosure: the list itself neither moves nor replaces itself.
     expect(pane.contains(fullNotes)).toBe(true);
@@ -494,6 +602,22 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     expect(fullNotes.hidden).toBe(true);
     expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(indicator.textContent).toBe("▸");
+  });
+
+  it("selecting a sign from the map does not open its extra note", async () => {
+    const target = sign("nearby", 22.25, 60.45, { notes: "Additional sign details" });
+    const { registerScriptTab, tab } = await openTab({ signs: [target] });
+
+    await tab.refresh();
+
+    const [row] = rowsOf(await paneOf(registerScriptTab));
+    const fullNotes = fullNotesOf(row!);
+    tab.selectSign(target);
+
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(fullNotes.hidden).toBe(true);
   });
 
   it("filters by sign-code category and restores choice after viewport moves and ready", async () => {
@@ -536,7 +660,8 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     await tab.refresh();
 
     const [row] = rowsOf(await paneOf(registerScriptTab));
-    expect(row!.querySelector(`.${SIGN_ROW_NOTES_CLASS}`)).toBeNull();
+    expect(row!.parentElement!.querySelector(`.${SIGN_ROW_NOTES_FULL_CLASS}`)).toBeNull();
+    expect(row!.querySelector(`.${SIGN_ROW_DISCLOSURE_CLASS}`)).toBeNull();
     row!.click();
     expect(row!.parentElement!.querySelector(`.${SIGN_ROW_NOTES_FULL_CLASS}`)).toBeNull();
     expect(row!.getAttribute("aria-expanded")).toBe("false");

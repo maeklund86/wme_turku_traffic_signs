@@ -329,7 +329,7 @@ describe("visual overlay wiring", () => {
     expect(features[0]!.geometry.coordinates).toEqual([22.27617187661397, 60.443853785959234]);
   });
 
-  it("opens the script tab and expands the clicked sign row", async () => {
+  it("selects the clicked sign row without opening its extra note", async () => {
     const { fake, tabLabel, rows, features } = await readyWithSigns([
       sign("321020431", 22.27617187661397, 60.443853785959234, {
         signName: "First sign",
@@ -347,10 +347,10 @@ describe("visual overlay wiring", () => {
 
     expect(fake.isScriptTabActive(tabLabel)).toBe(true);
     expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(true);
-    expect(row!.getAttribute("aria-expanded")).toBe("true");
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
     expect(row!.getAttribute("aria-pressed")).toBe("true");
     expect(row!.textContent).toContain("First sign");
-    expect(fullNotesOf(row!).hidden).toBe(false);
+    expect(fullNotesOf(row!).hidden).toBe(true);
   });
 
   it("replaces the previous marker selection", async () => {
@@ -367,7 +367,7 @@ describe("visual overlay wiring", () => {
     fake.emitFeatureClick({ featureId: secondFeature!.id, layerName: SIGN_LAYER_NAME });
 
     expect(secondRow!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(true);
-    expect(secondRow!.getAttribute("aria-expanded")).toBe("true");
+    expect(secondRow!.getAttribute("aria-expanded")).toBe("false");
     expect(firstRow!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
     expect(firstRow!.getAttribute("aria-expanded")).toBe("false");
   });

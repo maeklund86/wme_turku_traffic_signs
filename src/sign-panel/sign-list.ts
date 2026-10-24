@@ -2,15 +2,17 @@ import {
   SIGN_LIST_CLASS,
   SIGN_LIST_HEADER_CLASS,
   SIGN_ROW_BODY_CLASS,
+  SIGN_ROW_CATEGORY_CLASS,
   SIGN_ROW_CLASS,
   SIGN_ROW_CODE_CLASS,
+  SIGN_ROW_DISCLOSURE_CLASS,
   SIGN_ROW_ICON_CLASS,
   SIGN_ROW_NAME_CLASS,
-  SIGN_ROW_NOTES_CLASS,
   SIGN_ROW_NOTES_FULL_CLASS,
   SIGN_ROW_SELECTED_CLASS,
 } from "../constants";
 import type { TrafficSign } from "../data/traffic-sign";
+import { categoryForCode } from "../data/sign-categories";
 import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
 
 /**
@@ -22,7 +24,7 @@ import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
 export interface SignList {
   /** Replaces the rows with exactly these signs, in the order given. */
   render(signs: readonly TrafficSign[]): void;
-  /** Highlights and expands one row, or clears the current selection. */
+  /** Highlights one row, or clears the current selection. */
   select(sign: TrafficSign | null): void;
   /** Clears stale rows and removes the count claim when viewport bounds fail. */
   markUnavailable(): void;
@@ -109,16 +111,25 @@ function buildRow(document: Document, sign: TrafficSign): SignRow {
   name.className = SIGN_ROW_NAME_CLASS;
   // Registry values verbatim: Finnish names and notes are never translated (AC-24).
   name.textContent = sign.signName;
-  body.append(name);
+  const category = document.createElement("span");
+  category.className = SIGN_ROW_CATEGORY_CLASS;
+  category.textContent = categoryForCode(sign.signCode).label;
+  body.append(name, category);
 
   row.append(icon, code, body);
 
   // A sign without a registry note (`Huomautus` null) has no notes at all:
-  // neither a preview nor an expansion target, so nothing about it is rendered
-  // and the row cannot expand into an empty block (AC-21).
+  // nothing is rendered and the row cannot expand into an empty block (AC-21).
   const notes = sign.notes;
   const notesDisclosure = notes === null ? null : buildNotesDisclosure(document, notes);
-  if (notesDisclosure !== null) body.append(notesDisclosure.preview);
+  let disclosureIndicator: HTMLElement | null = null;
+  if (notesDisclosure !== null) {
+    disclosureIndicator = document.createElement("span");
+    disclosureIndicator.className = SIGN_ROW_DISCLOSURE_CLASS;
+    disclosureIndicator.textContent = "▸";
+    disclosureIndicator.setAttribute("aria-hidden", "true");
+    row.append(disclosureIndicator);
+  }
 
   let notesExpanded = false;
   row.addEventListener("click", () => {
@@ -126,11 +137,13 @@ function buildRow(document: Document, sign: TrafficSign): SignRow {
     notesExpanded = !notesExpanded;
     row.setAttribute("aria-expanded", String(notesExpanded));
     notesDisclosure.full.hidden = !notesExpanded;
+    if (disclosureIndicator !== null) {
+      disclosureIndicator.textContent = notesExpanded ? "▾" : "▸";
+    }
   });
 
   item.append(row);
-  // Keep the row and its truncated preview in place; expansion adds the full
-  // note beneath them instead of replacing either part of the row.
+  // Keep the row in place; expansion adds the full note beneath it.
   if (notesDisclosure !== null) item.append(notesDisclosure.full);
   return {
     sign,
@@ -138,29 +151,19 @@ function buildRow(document: Document, sign: TrafficSign): SignRow {
     setSelected(selected: boolean): void {
       row.classList.toggle(SIGN_ROW_SELECTED_CLASS, selected);
       row.setAttribute("aria-pressed", String(selected));
-      if (notesDisclosure !== null) {
-        notesExpanded = selected;
-        row.setAttribute("aria-expanded", String(notesExpanded));
-        notesDisclosure.full.hidden = !notesExpanded;
-      }
     },
   };
 }
 
 interface NotesDisclosure {
-  preview: HTMLElement;
   full: HTMLElement;
 }
 
 function buildNotesDisclosure(document: Document, notes: string): NotesDisclosure {
-  const preview = document.createElement("span");
-  preview.className = SIGN_ROW_NOTES_CLASS;
-  preview.textContent = notes;
-
   const full = document.createElement("div");
   full.className = SIGN_ROW_NOTES_FULL_CLASS;
   full.textContent = notes;
   full.hidden = true;
 
-  return { preview, full };
+  return { full };
 }
