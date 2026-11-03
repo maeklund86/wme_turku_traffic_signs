@@ -428,7 +428,14 @@ describe("visual overlay wiring", () => {
     expect(addedFeatures(fake).map((feature) => feature.id)).toEqual(["speed", "lane-speed"]);
     const settingsRepository = new SettingsRepository(storage);
     await vi.waitFor(async () => {
-      expect(await settingsRepository.load()).toMatchObject({ categoryFilter: ["speed-limits"] });
+      expect(await settingsRepository.load()).toMatchObject({
+        categoryFilter: [
+          "speed-limits-general",
+          "speed-limits-areas",
+          "speed-limits-time-lane",
+          "speed-limits-unclassified",
+        ],
+      });
     });
 
     fake.map.addFeatureToLayer.mockClear();
@@ -464,6 +471,19 @@ describe("visual overlay wiring", () => {
 
     const pane = await paneOf(fake.registerScriptTab);
     const warning = checkboxNamed(pane, "Warning signs");
+    const childGroup = pane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Warning signs subcategories"]',
+    )!;
+    const warningFamilyCheckbox = (name: string) =>
+      name === "Unclassified"
+        ? childGroup.querySelector<HTMLInputElement>('input[aria-label="Unclassified"]')!
+        : checkboxNamed(pane, name);
+    const setWarningFamily = async (name: string, checked: boolean) => {
+      const checkbox = warningFamilyCheckbox(name);
+      checkbox.checked = checked;
+      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
     const warningFamilies = [
       "Road layout and condition",
       "Pedestrians, cyclists, animals, and recreation",
@@ -475,14 +495,11 @@ describe("visual overlay wiring", () => {
     expect(warning.indeterminate).toBe(false);
     expect(checkboxNamed(pane, "Other").checked).toBe(true);
     for (const family of warningFamilies) {
-      expect(checkboxNamed(pane, family).checked).toBe(true);
+      expect(warningFamilyCheckbox(family).checked).toBe(true);
     }
     expect(checkboxNamed(pane, "Priority").checked).toBe(true);
 
     const disclosure = expansionButtonNamed(pane, "Expand Warning signs subcategories");
-    const childGroup = pane.querySelector<HTMLElement>(
-      '[role="group"][aria-label="Warning signs subcategories"]',
-    )!;
     expect(disclosure.getAttribute("aria-expanded")).toBe("false");
     expect(childGroup.hidden).toBe(true);
     const beforeExpand = addedFeatures(fake).map((feature) => feature.id);
@@ -502,7 +519,7 @@ describe("visual overlay wiring", () => {
     expect(warning.indeterminate).toBe(false);
     expect(checkboxNamed(pane, "Priority").checked).toBe(false);
     for (const family of warningFamilies) {
-      expect(checkboxNamed(pane, family).checked).toBe(false);
+      expect(warningFamilyCheckbox(family).checked).toBe(false);
     }
 
     const visibleCodes = () =>
@@ -517,12 +534,12 @@ describe("visual overlay wiring", () => {
     ] as const;
     for (const [family, codes] of familyCases) {
       fake.map.addFeatureToLayer.mockClear();
-      await setCheckbox(pane, family, true);
+      await setWarningFamily(family, true);
       expect(visibleCodes()).toEqual(codes);
       expect(markerCodes()).toEqual(codes);
       expect(warning.checked).toBe(false);
       expect(warning.indeterminate).toBe(true);
-      await setCheckbox(pane, family, false);
+      await setWarningFamily(family, false);
     }
 
     await setCheckbox(pane, "Road layout and condition", true);
@@ -546,11 +563,11 @@ describe("visual overlay wiring", () => {
     await setCheckbox(pane, "Warning signs", true);
     expect(warning.checked).toBe(true);
     expect(warning.indeterminate).toBe(false);
-    expect(warningFamilies.every((family) => checkboxNamed(pane, family).checked)).toBe(true);
+    expect(warningFamilies.every((family) => warningFamilyCheckbox(family).checked)).toBe(true);
     expect(markerCodes()).toEqual(signs.slice(0, -1).map(({ signCode }) => signCode));
     fake.map.addFeatureToLayer.mockClear();
     await setCheckbox(pane, "Warning signs", false);
-    expect(warningFamilies.every((family) => !checkboxNamed(pane, family).checked)).toBe(true);
+    expect(warningFamilies.every((family) => !warningFamilyCheckbox(family).checked)).toBe(true);
     fake.map.addFeatureToLayer.mockClear();
     await setCheckbox(pane, "Priority", true);
     expect(visibleCodes()).toEqual(["B1"]);
@@ -620,7 +637,13 @@ describe("visual overlay wiring", () => {
     expect(reloadedWarning.checked).toBe(false);
     expect(reloadedWarning.indeterminate).toBe(true);
     expect(checkboxNamed(reloadedPane, "Other hazards").checked).toBe(false);
-    expect(checkboxNamed(reloadedPane, "Unclassified").checked).toBe(true);
+    const reloadedWarningGroup = reloadedPane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Warning signs subcategories"]',
+    )!;
+    expect(
+      reloadedWarningGroup.querySelector<HTMLInputElement>('input[aria-label="Unclassified"]')
+        ?.checked,
+    ).toBe(true);
     expect(
       rowsOf(reloadedPane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
     ).toEqual(["A1", "A99", "B1"]);
@@ -810,6 +833,143 @@ describe("Sign Panel visibility control", () => {
     expect(dataDeps.datasetStore.write).not.toHaveBeenCalled();
     expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1);
     expect(fake.map.removeAllFeaturesFromLayer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Speed limits subcategory wiring", () => {
+  it("filters speed families across Sign Panel rows and overlay markers", async () => {
+    silenceConsole();
+    const signs = [
+      sign("c32", 22.25, 60.45, { signCode: "C32" }),
+      sign("c32-variant", 22.251, 60.45, { signCode: "C32.1" }),
+      sign("c33-variant", 22.252, 60.45, { signCode: "C33_2" }),
+      sign("c34", 22.253, 60.45, { signCode: "C34" }),
+      sign("c34-variant", 22.254, 60.45, { signCode: "C34.1" }),
+      sign("c35-variant", 22.255, 60.45, { signCode: "C35-1" }),
+      sign("c36-dot", 22.256, 60.45, { signCode: "C36.7" }),
+      sign("c36-dot-variant", 22.257, 60.45, { signCode: "C36.7_1" }),
+      sign("c36-underscore", 22.258, 60.45, { signCode: "C36_7" }),
+      sign("c36-underscore-variant", 22.259, 60.45, { signCode: "C36_7_1" }),
+      sign("c32-lookalike", 22.26, 60.45, { signCode: "C32x" }),
+      sign("c36-lookalike", 22.261, 60.45, { signCode: "C36_7x" }),
+      sign("parking", 22.262, 60.45, { signCode: "C37" }),
+      sign("priority", 22.263, 60.45, { signCode: "B1" }),
+    ];
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage: createMemoryStore(),
+      signData: createFakeDataDeps({
+        record: record("2026-10-11T19:50:25.6808150Z", NOW, signs),
+      }),
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(signs.length));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    const speedLimits = checkboxNamed(pane, "Speed limits");
+    const speedFamilies = [
+      "General speed limits",
+      "Speed-limit areas",
+      "Time- or lane-specific limits",
+      "Unclassified",
+    ];
+    const visibleCodes = () =>
+      rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent);
+    const markerCodes = () =>
+      fake.map.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature.properties?.signCode);
+    const familyCases = [
+      ["General speed limits", ["C32", "C32.1", "C33_2"]],
+      ["Speed-limit areas", ["C34", "C34.1", "C35-1"]],
+      ["Time- or lane-specific limits", ["C36.7", "C36.7_1", "C36_7", "C36_7_1"]],
+      ["Unclassified", ["C32x", "C36_7x"]],
+    ] as const;
+    const speedCodes = familyCases.flatMap(([, codes]) => codes);
+
+    expect(speedLimits.checked).toBe(true);
+    expect(speedLimits.indeterminate).toBe(false);
+    expect(speedFamilies.every((family) => checkboxNamed(pane, family).checked)).toBe(true);
+    expect(visibleCodes()).toEqual(signs.map(({ signCode }) => signCode));
+
+    buttonNamed(pane, "Select none").click();
+    expect(speedLimits.checked).toBe(false);
+    expect(speedLimits.indeterminate).toBe(false);
+    for (const [family, codes] of familyCases) {
+      fake.map.addFeatureToLayer.mockClear();
+      await setCheckbox(pane, family, true);
+      expect(visibleCodes()).toEqual(codes);
+      expect(markerCodes()).toEqual(codes);
+      expect(speedLimits.checked).toBe(false);
+      expect(speedLimits.indeterminate).toBe(true);
+      await setCheckbox(pane, family, false);
+    }
+
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Speed limits", true);
+    expect(speedLimits.checked).toBe(true);
+    expect(speedLimits.indeterminate).toBe(false);
+    expect(speedFamilies.every((family) => checkboxNamed(pane, family).checked)).toBe(true);
+    expect(visibleCodes()).toEqual(speedCodes);
+    expect(markerCodes()).toEqual(speedCodes);
+  });
+
+  it("restores a saved category-only Speed limits selection to every child", async () => {
+    silenceConsole();
+    const signs = [
+      sign("general", 22.25, 60.45, { signCode: "C32" }),
+      sign("area", 22.251, 60.45, { signCode: "C34" }),
+      sign("time-lane", 22.252, 60.45, { signCode: "C36.7" }),
+      sign("unclassified", 22.253, 60.45, { signCode: "C36_7x" }),
+      sign("parking", 22.254, 60.45, { signCode: "C37" }),
+      sign("priority", 22.255, 60.45, { signCode: "B1" }),
+    ];
+    const storage = createMemoryStore();
+    await storage.setItem(
+      SIGN_PANEL_SETTINGS_KEY,
+      JSON.stringify({ showSigns: true, categoryFilter: ["speed-limits"] }),
+    );
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage,
+      signData: createFakeDataDeps({
+        record: record("2026-10-11T19:50:25.6808150Z", NOW, signs),
+      }),
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(4));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    const speedFamilies = [
+      "General speed limits",
+      "Speed-limit areas",
+      "Time- or lane-specific limits",
+      "Unclassified",
+    ];
+    expect(checkboxNamed(pane, "Speed limits").checked).toBe(true);
+    expect(speedFamilies.every((family) => checkboxNamed(pane, family).checked)).toBe(true);
+    expect(checkboxNamed(pane, "Parking").checked).toBe(false);
+    expect(checkboxNamed(pane, "Priority").checked).toBe(false);
+    expect(
+      rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
+    ).toEqual(["C32", "C34", "C36.7", "C36_7x"]);
+    expect(
+      fake.map.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature.properties?.signCode),
+    ).toEqual(["C32", "C34", "C36.7", "C36_7x"]);
   });
 });
 

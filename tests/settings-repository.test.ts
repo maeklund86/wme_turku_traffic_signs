@@ -17,11 +17,18 @@ describe("SettingsRepository (Sign Panel persisted state)", () => {
 
   it("restores the visibility flag and Sign Category filter after a later wme-ready", async () => {
     const repository = new SettingsRepository(createMemoryStore());
-    await repository.save({ showSigns: false, categoryFilter: ["speed-limits", "priority"] });
+    const categoryFilter = [
+      "speed-limits-general",
+      "speed-limits-areas",
+      "speed-limits-time-lane",
+      "speed-limits-unclassified",
+      "priority",
+    ] as const;
+    await repository.save({ showSigns: false, categoryFilter });
 
     await expect(repository.load()).resolves.toEqual({
       showSigns: false,
-      categoryFilter: ["speed-limits", "priority"],
+      categoryFilter,
     });
   });
 

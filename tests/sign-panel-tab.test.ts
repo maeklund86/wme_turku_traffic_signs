@@ -643,10 +643,18 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
     expect(checkboxNamed(pane, "Speed limits").checked).toBe(true);
+    expect(checkboxNamed(pane, "Speed limits").indeterminate).toBe(false);
     fake.emitMapMoveEnd();
     expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
     await vi.waitFor(async () => {
-      expect(await repository.load()).toMatchObject({ categoryFilter: ["speed-limits"] });
+      expect(await repository.load()).toMatchObject({
+        categoryFilter: [
+          "speed-limits-general",
+          "speed-limits-areas",
+          "speed-limits-time-lane",
+          "speed-limits-unclassified",
+        ],
+      });
     });
 
     await tab.refresh();

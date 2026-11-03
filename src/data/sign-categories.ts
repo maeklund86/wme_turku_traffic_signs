@@ -30,6 +30,29 @@ export const SIGN_CATEGORIES = [
     label: "Speed limits",
     displayCode: "C32–36.7",
     prefixes: ["C32", "C33", "C34", "C35", "C36_7", "C36.7"],
+    subcategories: [
+      {
+        key: "speed-limits-general",
+        label: "General speed limits",
+        codePrefixes: codeRange("C", 32, 33),
+      },
+      {
+        key: "speed-limits-areas",
+        label: "Speed-limit areas",
+        codePrefixes: codeRange("C", 34, 35),
+      },
+      {
+        key: "speed-limits-time-lane",
+        label: "Time- or lane-specific limits",
+        codePrefixes: ["C36.7", "C36_7"],
+      },
+      {
+        key: "speed-limits-unclassified",
+        label: "Unclassified",
+        codePrefixes: [],
+        unclassified: true,
+      },
+    ],
   },
   { key: "priority", label: "Priority", displayCode: "B", prefixes: ["B"] },
   {
