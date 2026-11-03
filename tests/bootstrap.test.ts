@@ -471,18 +471,25 @@ describe("visual overlay wiring", () => {
       "Other hazards",
       "Unclassified",
     ];
+    const childGroup = pane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Warning signs subcategories"]',
+    )!;
+    const warningSubcategoryCheckbox = (family: string): HTMLInputElement => {
+      const checkbox = [
+        ...childGroup.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+      ].find((candidate) => candidate.getAttribute("aria-label") === family);
+      if (!checkbox) throw new Error(`Warning subcategory checkbox "${family}" was not rendered`);
+      return checkbox;
+    };
     expect(warning.checked).toBe(true);
     expect(warning.indeterminate).toBe(false);
     expect(checkboxNamed(pane, "Other").checked).toBe(true);
     for (const family of warningFamilies) {
-      expect(checkboxNamed(pane, family).checked).toBe(true);
+      expect(warningSubcategoryCheckbox(family).checked).toBe(true);
     }
     expect(checkboxNamed(pane, "Priority").checked).toBe(true);
 
     const disclosure = expansionButtonNamed(pane, "Expand Warning signs subcategories");
-    const childGroup = pane.querySelector<HTMLElement>(
-      '[role="group"][aria-label="Warning signs subcategories"]',
-    )!;
     expect(disclosure.getAttribute("aria-expanded")).toBe("false");
     expect(childGroup.hidden).toBe(true);
     const beforeExpand = addedFeatures(fake).map((feature) => feature.id);
@@ -502,7 +509,7 @@ describe("visual overlay wiring", () => {
     expect(warning.indeterminate).toBe(false);
     expect(checkboxNamed(pane, "Priority").checked).toBe(false);
     for (const family of warningFamilies) {
-      expect(checkboxNamed(pane, family).checked).toBe(false);
+      expect(warningSubcategoryCheckbox(family).checked).toBe(false);
     }
 
     const visibleCodes = () =>
@@ -515,14 +522,24 @@ describe("visual overlay wiring", () => {
       ["Other hazards", ["A30", "A33_2"]],
       ["Unclassified", ["A99"]],
     ] as const;
+    const setWarningFamily = async (family: string, checked: boolean) => {
+      if (family !== "Unclassified") {
+        await setCheckbox(pane, family, checked);
+        return;
+      }
+      const checkbox = warningSubcategoryCheckbox(family);
+      checkbox.checked = checked;
+      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
     for (const [family, codes] of familyCases) {
       fake.map.addFeatureToLayer.mockClear();
-      await setCheckbox(pane, family, true);
+      await setWarningFamily(family, true);
       expect(visibleCodes()).toEqual(codes);
       expect(markerCodes()).toEqual(codes);
       expect(warning.checked).toBe(false);
       expect(warning.indeterminate).toBe(true);
-      await setCheckbox(pane, family, false);
+      await setWarningFamily(family, false);
     }
 
     await setCheckbox(pane, "Road layout and condition", true);
@@ -546,11 +563,15 @@ describe("visual overlay wiring", () => {
     await setCheckbox(pane, "Warning signs", true);
     expect(warning.checked).toBe(true);
     expect(warning.indeterminate).toBe(false);
-    expect(warningFamilies.every((family) => checkboxNamed(pane, family).checked)).toBe(true);
+    expect(warningFamilies.every((family) => warningSubcategoryCheckbox(family).checked)).toBe(
+      true,
+    );
     expect(markerCodes()).toEqual(signs.slice(0, -1).map(({ signCode }) => signCode));
     fake.map.addFeatureToLayer.mockClear();
     await setCheckbox(pane, "Warning signs", false);
-    expect(warningFamilies.every((family) => !checkboxNamed(pane, family).checked)).toBe(true);
+    expect(warningFamilies.every((family) => !warningSubcategoryCheckbox(family).checked)).toBe(
+      true,
+    );
     fake.map.addFeatureToLayer.mockClear();
     await setCheckbox(pane, "Priority", true);
     expect(visibleCodes()).toEqual(["B1"]);
@@ -620,7 +641,14 @@ describe("visual overlay wiring", () => {
     expect(reloadedWarning.checked).toBe(false);
     expect(reloadedWarning.indeterminate).toBe(true);
     expect(checkboxNamed(reloadedPane, "Other hazards").checked).toBe(false);
-    expect(checkboxNamed(reloadedPane, "Unclassified").checked).toBe(true);
+    const reloadedWarningGroup = reloadedPane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Warning signs subcategories"]',
+    )!;
+    expect(
+      [...reloadedWarningGroup.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+        (candidate) => candidate.getAttribute("aria-label") === "Unclassified",
+      )?.checked,
+    ).toBe(true);
     expect(
       rowsOf(reloadedPane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
     ).toEqual(["A1", "A99", "B1"]);
@@ -703,6 +731,119 @@ describe("visual overlay wiring", () => {
       featureId: "1",
     });
     expect(mapElement.style.cursor).toBe("crosshair");
+  });
+});
+
+describe("Parking category filter wiring", () => {
+  it("migrates saved category-only choices and filters parking families across the panel and overlay", async () => {
+    silenceConsole();
+    const storage = createMemoryStore();
+    await storage.setItem(
+      SIGN_PANEL_SETTINGS_KEY,
+      JSON.stringify({ showSigns: true, categoryFilter: ["parking"] }),
+    );
+    const parkingCodes = [
+      "C37",
+      "C37.1",
+      "C37x",
+      "C38",
+      "C39_1",
+      "C40-1",
+      "C41",
+      "C42.1",
+      "C43_2",
+      "C44",
+      "E2",
+      "E3.1",
+      "E4-1",
+      "F46_1",
+    ];
+    const signs = [
+      ...parkingCodes.map((code, index) =>
+        sign(`parking-${index}`, 22.25 + index * 0.001, 60.45, { signCode: code }),
+      ),
+      sign("priority", 22.27, 60.45, { signCode: "B1" }),
+    ];
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage,
+      signData: createFakeDataDeps({ record: record("2026-10-11T19:50:25.6808150Z", NOW, signs) }),
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() =>
+      expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(parkingCodes.length),
+    );
+
+    const pane = await paneOf(fake.registerScriptTab);
+    const parking = checkboxNamed(pane, "Parking");
+    const parkingGroup = pane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Parking subcategories"]',
+    );
+    expect(parkingGroup).not.toBeNull();
+    const parkingSubcategory = (label: string): HTMLInputElement => {
+      const checkbox = [
+        ...parkingGroup!.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+      ].find((candidate) => candidate.getAttribute("aria-label") === label);
+      if (!checkbox) throw new Error(`Parking subcategory checkbox "${label}" was not rendered`);
+      return checkbox;
+    };
+    const setParkingSubcategory = async (label: string, checked: boolean) => {
+      const checkbox = parkingSubcategory(label);
+      checkbox.checked = checked;
+      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const visiblePanelCodes = () =>
+      rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent);
+    const visibleOverlayCodes = () =>
+      fake.map.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature.properties?.signCode);
+
+    expect(parking.checked).toBe(true);
+    expect(parking.indeterminate).toBe(false);
+    for (const family of [
+      "Stopping and parking restrictions",
+      "Special-vehicle parking and loading",
+      "Parking places and facilities",
+      "Unclassified",
+    ]) {
+      expect(parkingSubcategory(family).checked).toBe(true);
+    }
+    expect(visiblePanelCodes()).toEqual(parkingCodes);
+    expect(visibleOverlayCodes()).toEqual(parkingCodes);
+
+    await setParkingSubcategory("Unclassified", false);
+    expect(parking.checked).toBe(false);
+    expect(parking.indeterminate).toBe(true);
+    await vi.waitFor(async () =>
+      expect(await new SettingsRepository(storage).load()).toMatchObject({
+        categoryFilter: ["parking-restrictions", "parking-special-vehicles", "parking-facilities"],
+      }),
+    );
+
+    buttonNamed(pane, "Select none").click();
+    const familyCases = [
+      ["Stopping and parking restrictions", ["C37", "C37.1", "C38", "C39_1", "C40-1", "C44"]],
+      ["Special-vehicle parking and loading", ["C41", "C42.1", "C43_2"]],
+      ["Parking places and facilities", ["E2", "E3.1", "E4-1", "F46_1"]],
+      ["Unclassified", ["C37x"]],
+    ] as const;
+    for (const [family, expectedCodes] of familyCases) {
+      fake.map.addFeatureToLayer.mockClear();
+      await setParkingSubcategory(family, true);
+      expect(visiblePanelCodes()).toEqual(expectedCodes);
+      expect(visibleOverlayCodes()).toEqual(expectedCodes);
+      expect(parking.checked).toBe(false);
+      expect(parking.indeterminate).toBe(true);
+      await setParkingSubcategory(family, false);
+    }
   });
 });
 
