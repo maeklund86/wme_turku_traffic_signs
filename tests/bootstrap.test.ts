@@ -633,6 +633,197 @@ describe("visual overlay wiring", () => {
     expect(reloaded.dataDeps.fetchDataset).not.toHaveBeenCalled();
   });
 
+  it("filters Other restrictions by code family in the panel and overlay", async () => {
+    const signs = [
+      sign("c1", 22.25, 60.45, { signCode: "C1" }),
+      sign("c16-dot", 22.251, 60.45, { signCode: "C16.1" }),
+      sign("c16-underscore", 22.252, 60.45, { signCode: "C16_2" }),
+      sign("c16-hyphen", 22.253, 60.45, { signCode: "C16-3" }),
+      sign("c17", 22.254, 60.45, { signCode: "C17" }),
+      sign("c20-variant", 22.255, 60.45, { signCode: "C20.1" }),
+      sign("c21", 22.256, 60.45, { signCode: "C21" }),
+      sign("c27-variant", 22.257, 60.45, { signCode: "C27-1" }),
+      sign("c28", 22.258, 60.45, { signCode: "C28" }),
+      sign("c31-variant", 22.259, 60.45, { signCode: "C31_1" }),
+      sign("c47", 22.26, 60.45, { signCode: "C47" }),
+      sign("c45", 22.261, 60.45, { signCode: "C45" }),
+      sign("c46-variant", 22.262, 60.45, { signCode: "C46.1" }),
+      sign("c48", 22.263, 60.45, { signCode: "C48" }),
+      sign("c49", 22.264, 60.45, { signCode: "C49" }),
+      sign("c17-no-boundary", 22.265, 60.45, { signCode: "C17x" }),
+      sign("speed", 22.266, 60.45, { signCode: "C32" }),
+    ];
+    const { fake, resolveSdkInitialized, started, dataDeps } = bootWithSigns(signs);
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(addedFeatures(fake)).toHaveLength(signs.length));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    const restrictions = checkboxNamed(pane, "Other restrictions");
+    const restrictionGroup = pane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Other restrictions subcategories"]',
+    )!;
+    const restrictionCheckbox = (family: string) =>
+      restrictionGroup.querySelector<HTMLInputElement>(`input[aria-label="${family}"]`)!;
+    const setRestrictionCheckbox = async (family: string, checked: boolean) => {
+      const checkbox = restrictionCheckbox(family);
+      checkbox.checked = checked;
+      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const visibleCodes = () =>
+      rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent);
+    const markerCodes = () => addedFeatures(fake).map((feature) => feature.properties?.signCode);
+    const familyCases = [
+      ["Access and vehicle-class restrictions", ["C1", "C16.1", "C16_2", "C16-3"]],
+      ["Turning and movement restrictions", ["C17", "C20.1"]],
+      ["Vehicle dimensions and weight", ["C21", "C27-1"]],
+      ["Overtaking and following-distance restrictions", ["C28", "C31_1", "C47"]],
+      ["Other special restrictions", ["C45", "C46.1", "C48"]],
+      ["Unclassified", ["C49", "C17x"]],
+    ] as const;
+
+    expect(restrictions.checked).toBe(true);
+    expect(restrictions.indeterminate).toBe(false);
+    for (const [family] of familyCases) {
+      expect(restrictionCheckbox(family).checked).toBe(true);
+    }
+
+    buttonNamed(pane, "Select none").click();
+    expect(restrictions.checked).toBe(false);
+    expect(restrictions.indeterminate).toBe(false);
+    for (const [family] of familyCases) {
+      expect(restrictionCheckbox(family).checked).toBe(false);
+    }
+
+    for (const [family, codes] of familyCases) {
+      fake.map.addFeatureToLayer.mockClear();
+      await setRestrictionCheckbox(family, true);
+      expect(visibleCodes()).toEqual(codes);
+      expect(markerCodes()).toEqual(codes);
+      expect(restrictions.checked).toBe(false);
+      expect(restrictions.indeterminate).toBe(true);
+      await setRestrictionCheckbox(family, false);
+    }
+
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Access and vehicle-class restrictions", true);
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Turning and movement restrictions", true);
+    const selectedCodes = ["C1", "C16.1", "C16_2", "C16-3", "C17", "C20.1"];
+    expect(restrictions.checked).toBe(false);
+    expect(restrictions.indeterminate).toBe(true);
+    expect(visibleCodes()).toEqual(selectedCodes);
+    expect(markerCodes()).toEqual(selectedCodes);
+
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitMapMoveEnd();
+    expect(visibleCodes()).toEqual(selectedCodes);
+    expect(markerCodes()).toEqual(selectedCodes);
+    expect(dataDeps.fetchDataset).not.toHaveBeenCalled();
+    expect(dataDeps.datasetStore.read).toHaveBeenCalledTimes(1);
+
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Other restrictions", true);
+    expect(restrictions.checked).toBe(true);
+    expect(restrictions.indeterminate).toBe(false);
+    expect(familyCases.every(([family]) => restrictionCheckbox(family).checked)).toBe(true);
+    expect(visibleCodes()).toEqual(signs.slice(0, -1).map(({ signCode }) => signCode));
+    expect(markerCodes()).toEqual(signs.slice(0, -1).map(({ signCode }) => signCode));
+
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Other restrictions", false);
+    expect(restrictions.checked).toBe(false);
+    expect(familyCases.every(([family]) => !restrictionCheckbox(family).checked)).toBe(true);
+    expect(visibleCodes()).toEqual([]);
+    expect(markerCodes()).toEqual([]);
+  });
+
+  it("migrates a saved Other restrictions category selection to its children", async () => {
+    const storage = createMemoryStore();
+    await storage.setItem(
+      SIGN_PANEL_SETTINGS_KEY,
+      JSON.stringify({ showSigns: true, categoryFilter: ["restrictions"] }),
+    );
+    const signs = [
+      sign("c1", 22.25, 60.45, { signCode: "C1" }),
+      sign("c17", 22.251, 60.45, { signCode: "C17" }),
+      sign("c21", 22.252, 60.45, { signCode: "C21" }),
+      sign("c28", 22.253, 60.45, { signCode: "C28" }),
+      sign("c47", 22.254, 60.45, { signCode: "C47" }),
+      sign("c45", 22.255, 60.45, { signCode: "C45" }),
+      sign("c48", 22.256, 60.45, { signCode: "C48" }),
+      sign("c49", 22.257, 60.45, { signCode: "C49" }),
+      sign("speed", 22.258, 60.45, { signCode: "C32" }),
+    ];
+    const first = bootWithSigns(signs, storage);
+
+    first.resolveSdkInitialized();
+    await first.started;
+    first.fake.emitWmeReady();
+    await vi.waitFor(() => expect(addedFeatures(first.fake)).toHaveLength(signs.length - 1));
+
+    const firstPane = await paneOf(first.fake.registerScriptTab);
+    const restrictions = checkboxNamed(firstPane, "Other restrictions");
+    const firstRestrictionGroup = firstPane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Other restrictions subcategories"]',
+    )!;
+    const firstRestrictionCheckbox = (family: string) =>
+      firstRestrictionGroup.querySelector<HTMLInputElement>(`input[aria-label="${family}"]`)!;
+    const restrictionFamilies = [
+      "Access and vehicle-class restrictions",
+      "Turning and movement restrictions",
+      "Vehicle dimensions and weight",
+      "Overtaking and following-distance restrictions",
+      "Other special restrictions",
+      "Unclassified",
+    ];
+    const expectedCodes = signs.slice(0, -1).map(({ signCode }) => signCode);
+    expect(restrictions.checked).toBe(true);
+    expect(restrictions.indeterminate).toBe(false);
+    expect(restrictionFamilies.every((family) => firstRestrictionCheckbox(family).checked)).toBe(
+      true,
+    );
+    expect(
+      rowsOf(firstPane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
+    ).toEqual(expectedCodes);
+    expect(addedFeatures(first.fake).map((feature) => feature.properties?.signCode)).toEqual(
+      expectedCodes,
+    );
+
+    await setCheckbox(firstPane, "Other special restrictions", false);
+    expect(restrictions.checked).toBe(false);
+    expect(restrictions.indeterminate).toBe(true);
+
+    const reloaded = bootWithSigns(signs, storage);
+    reloaded.resolveSdkInitialized();
+    await reloaded.started;
+    reloaded.fake.emitWmeReady();
+    await vi.waitFor(() => expect(addedFeatures(reloaded.fake)).toHaveLength(6));
+
+    const reloadedPane = await paneOf(reloaded.fake.registerScriptTab);
+    const reloadedRestrictions = checkboxNamed(reloadedPane, "Other restrictions");
+    const reloadedRestrictionGroup = reloadedPane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Other restrictions subcategories"]',
+    )!;
+    const reloadedRestrictionCheckbox = (family: string) =>
+      reloadedRestrictionGroup.querySelector<HTMLInputElement>(`input[aria-label="${family}"]`)!;
+    const reloadedCodes = ["C1", "C17", "C21", "C28", "C47", "C49"];
+    expect(reloadedRestrictions.checked).toBe(false);
+    expect(reloadedRestrictions.indeterminate).toBe(true);
+    expect(reloadedRestrictionCheckbox("Other special restrictions").checked).toBe(false);
+    expect(
+      rowsOf(reloadedPane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
+    ).toEqual(reloadedCodes);
+    expect(addedFeatures(reloaded.fake).map((feature) => feature.properties?.signCode)).toEqual(
+      reloadedCodes,
+    );
+    expect(first.dataDeps.fetchDataset).not.toHaveBeenCalled();
+    expect(reloaded.dataDeps.fetchDataset).not.toHaveBeenCalled();
+  });
+
   it("re-creates the layer once and re-draws after every wme-ready", async () => {
     const { fake, resolveSdkInitialized, started } = bootWithSigns([sign("1", 22.2, 60.4)]);
 

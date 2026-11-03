@@ -77,6 +77,39 @@ export const SIGN_CATEGORIES = [
     label: "Other restrictions",
     displayCode: "C",
     prefixes: ["C"],
+    subcategories: [
+      {
+        key: "restrictions-access-vehicle-class",
+        label: "Access and vehicle-class restrictions",
+        codePrefixes: codeRange("C", 1, 16),
+      },
+      {
+        key: "restrictions-turning-movement",
+        label: "Turning and movement restrictions",
+        codePrefixes: codeRange("C", 17, 20),
+      },
+      {
+        key: "restrictions-dimensions-weight",
+        label: "Vehicle dimensions and weight",
+        codePrefixes: codeRange("C", 21, 27),
+      },
+      {
+        key: "restrictions-overtaking-following-distance",
+        label: "Overtaking and following-distance restrictions",
+        codePrefixes: [...codeRange("C", 28, 31), "C47"],
+      },
+      {
+        key: "restrictions-other-special",
+        label: "Other special restrictions",
+        codePrefixes: [...codeRange("C", 45, 46), "C48"],
+      },
+      {
+        key: "restrictions-unclassified",
+        label: "Unclassified",
+        codePrefixes: [],
+        unclassified: true,
+      },
+    ],
   },
   { key: "mandatory", label: "Mandatory signs", displayCode: "D", prefixes: ["D"] },
   { key: "rules", label: "Traffic rules", displayCode: "E", prefixes: ["E"] },
