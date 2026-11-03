@@ -51,11 +51,7 @@ export function expansionButtonNamed(pane: HTMLElement, label: string): HTMLButt
 }
 
 /** Changes a filter checkbox as a user does and waits for storage to settle. */
-export function setCheckbox(
-  pane: HTMLElement,
-  name: string,
-  checked: boolean,
-): Promise<void>;
+export function setCheckbox(pane: HTMLElement, name: string, checked: boolean): Promise<void>;
 export function setCheckbox(checkbox: HTMLInputElement, checked: boolean): Promise<void>;
 export async function setCheckbox(
   paneOrCheckbox: HTMLElement | HTMLInputElement,
