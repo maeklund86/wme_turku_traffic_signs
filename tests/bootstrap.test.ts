@@ -7,6 +7,7 @@ import {
   CACHE_TTL_MS,
   SIGN_LAYER_NAME,
   SIGN_PANEL_SETTINGS_KEY,
+  SIGN_ROW_CODE_CLASS,
   SIGN_ROW_SELECTED_CLASS,
   TURKU_EXTENT,
 } from "../src/constants";
@@ -19,11 +20,14 @@ import { createFakeDatasetStore } from "./support/fake-dataset-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
 import {
   buttonNamed,
+  checkboxNamed,
+  expansionButtonNamed,
   fullNotesOf,
   listHeaderOf,
   noticeOf,
   paneOf,
   rowsOf,
+  setCheckbox,
   toggleCheckbox,
   toggleOf,
 } from "./support/sign-panel-pane";
@@ -403,7 +407,7 @@ describe("visual overlay wiring", () => {
     expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
   });
 
-  it("filters markers from category chips and restores the saved filter on wme-ready", async () => {
+  it("filters markers from a category checkbox and restores the saved filter on wme-ready", async () => {
     const { fake, resolveSdkInitialized, started, storage } = bootWithSigns([
       sign("speed", 22.25, 60.45, { signCode: "C32_2", signName: "Pysäköinti kielletty" }),
       sign("lane-speed", 22.255, 60.45, { signCode: "C36_7" }),
@@ -419,7 +423,7 @@ describe("visual overlay wiring", () => {
     const pane = await paneOf(fake.registerScriptTab);
     fake.map.addFeatureToLayer.mockClear();
     buttonNamed(pane, "Select none").click();
-    buttonNamed(pane, "Speed limits").click();
+    await setCheckbox(pane, "Speed limits", true);
 
     expect(addedFeatures(fake).map((feature) => feature.id)).toEqual(["speed", "lane-speed"]);
     const settingsRepository = new SettingsRepository(storage);
@@ -436,6 +440,197 @@ describe("visual overlay wiring", () => {
         features.every((feature) => ["speed", "lane-speed"].includes(String(feature.id))),
       ).toBe(true);
     });
+  });
+
+  it("filters warning families across the panel and overlay, including on viewport moves", async () => {
+    const signs = [
+      sign("a1", 22.25, 60.45, { signCode: "A1" }),
+      sign("a14-variant", 22.251, 60.45, { signCode: "A14.1" }),
+      sign("a15", 22.252, 60.45, { signCode: "A15" }),
+      sign("a20-variant", 22.253, 60.45, { signCode: "A20.1" }),
+      sign("a21", 22.254, 60.45, { signCode: "A21" }),
+      sign("a29-variant", 22.255, 60.45, { signCode: "A29.2_2" }),
+      sign("a30", 22.256, 60.45, { signCode: "A30" }),
+      sign("a33-variant", 22.257, 60.45, { signCode: "A33_2" }),
+      sign("a99", 22.258, 60.45, { signCode: "A99" }),
+      sign("priority", 22.259, 60.45, { signCode: "B1" }),
+    ];
+    const { fake, resolveSdkInitialized, started, dataDeps } = bootWithSigns(signs);
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(addedFeatures(fake)).toHaveLength(signs.length));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    const warning = checkboxNamed(pane, "Warning signs");
+    const warningFamilies = [
+      "Road layout and condition",
+      "Pedestrians, cyclists, animals, and recreation",
+      "Intersections and rail crossings",
+      "Other hazards",
+      "Unclassified",
+    ];
+    expect(warning.checked).toBe(true);
+    expect(warning.indeterminate).toBe(false);
+    expect(checkboxNamed(pane, "Other").checked).toBe(true);
+    for (const family of warningFamilies) {
+      expect(checkboxNamed(pane, family).checked).toBe(true);
+    }
+    expect(checkboxNamed(pane, "Priority").checked).toBe(true);
+
+    const disclosure = expansionButtonNamed(pane, "Expand Warning signs subcategories");
+    const childGroup = pane.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Warning signs subcategories"]',
+    )!;
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(childGroup.hidden).toBe(true);
+    const beforeExpand = addedFeatures(fake).map((feature) => feature.id);
+    disclosure.click();
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(childGroup.hidden).toBe(false);
+    expect(warning.checked).toBe(true);
+    expect(warning.indeterminate).toBe(false);
+    expect(addedFeatures(fake).map((feature) => feature.id)).toEqual(beforeExpand);
+    disclosure.click();
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(childGroup.hidden).toBe(true);
+    expect(warning.checked).toBe(true);
+
+    buttonNamed(pane, "Select none").click();
+    expect(warning.checked).toBe(false);
+    expect(warning.indeterminate).toBe(false);
+    expect(checkboxNamed(pane, "Priority").checked).toBe(false);
+    for (const family of warningFamilies) {
+      expect(checkboxNamed(pane, family).checked).toBe(false);
+    }
+
+    const visibleCodes = () =>
+      rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent);
+    const markerCodes = () => addedFeatures(fake).map((feature) => feature.properties?.signCode);
+    const familyCases = [
+      ["Road layout and condition", ["A1", "A14.1"]],
+      ["Pedestrians, cyclists, animals, and recreation", ["A15", "A20.1"]],
+      ["Intersections and rail crossings", ["A21", "A29.2_2"]],
+      ["Other hazards", ["A30", "A33_2"]],
+      ["Unclassified", ["A99"]],
+    ] as const;
+    for (const [family, codes] of familyCases) {
+      fake.map.addFeatureToLayer.mockClear();
+      await setCheckbox(pane, family, true);
+      expect(visibleCodes()).toEqual(codes);
+      expect(markerCodes()).toEqual(codes);
+      expect(warning.checked).toBe(false);
+      expect(warning.indeterminate).toBe(true);
+      await setCheckbox(pane, family, false);
+    }
+
+    await setCheckbox(pane, "Road layout and condition", true);
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Intersections and rail crossings", true);
+    const selectedCodes = ["A1", "A14.1", "A21", "A29.2_2"];
+    expect(warning.checked).toBe(false);
+    expect(warning.indeterminate).toBe(true);
+    expect(visibleCodes()).toEqual(selectedCodes);
+    expect(markerCodes()).toEqual(selectedCodes);
+
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitMapMoveEnd();
+    expect(visibleCodes()).toEqual(selectedCodes);
+    expect(markerCodes()).toEqual(selectedCodes);
+    expect(dataDeps.fetchDataset).not.toHaveBeenCalled();
+    expect(dataDeps.datasetStore.read).toHaveBeenCalledTimes(1);
+
+    // Checking a parent selects every child; direct categories stay independent.
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Warning signs", true);
+    expect(warning.checked).toBe(true);
+    expect(warning.indeterminate).toBe(false);
+    expect(warningFamilies.every((family) => checkboxNamed(pane, family).checked)).toBe(true);
+    expect(markerCodes()).toEqual(signs.slice(0, -1).map(({ signCode }) => signCode));
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Warning signs", false);
+    expect(warningFamilies.every((family) => !checkboxNamed(pane, family).checked)).toBe(true);
+    fake.map.addFeatureToLayer.mockClear();
+    await setCheckbox(pane, "Priority", true);
+    expect(visibleCodes()).toEqual(["B1"]);
+    expect(markerCodes()).toEqual(["B1"]);
+
+    buttonNamed(pane, "Select all").click();
+    expect(warning.checked).toBe(true);
+    expect(warning.indeterminate).toBe(false);
+    expect(checkboxNamed(pane, "Priority").checked).toBe(true);
+    expect(checkboxNamed(pane, "Other").checked).toBe(true);
+    buttonNamed(pane, "Select none").click();
+    expect(warning.checked).toBe(false);
+    expect(checkboxNamed(pane, "Priority").checked).toBe(false);
+    expect(checkboxNamed(pane, "Other").checked).toBe(false);
+    expect(rowsOf(pane)).toHaveLength(0);
+  });
+
+  it("migrates saved category-only choices to warning children across reloads", async () => {
+    const storage = createMemoryStore();
+    await storage.setItem(
+      SIGN_PANEL_SETTINGS_KEY,
+      JSON.stringify({ showSigns: true, categoryFilter: ["warning", "priority"] }),
+    );
+    const signs = [
+      sign("a1", 22.25, 60.45, { signCode: "A1" }),
+      sign("a30", 22.251, 60.45, { signCode: "A30" }),
+      sign("a99", 22.252, 60.45, { signCode: "A99" }),
+      sign("priority", 22.253, 60.45, { signCode: "B1" }),
+      sign("parking", 22.254, 60.45, { signCode: "C38" }),
+    ];
+    const first = bootWithSigns(signs, storage);
+    first.resolveSdkInitialized();
+    await first.started;
+    first.fake.emitWmeReady();
+    await vi.waitFor(() => expect(addedFeatures(first.fake)).toHaveLength(4));
+
+    const firstPane = await paneOf(first.fake.registerScriptTab);
+    const firstWarning = checkboxNamed(firstPane, "Warning signs");
+    expect(firstWarning.checked).toBe(true);
+    expect(firstWarning.indeterminate).toBe(false);
+    expect(checkboxNamed(firstPane, "Other hazards").checked).toBe(true);
+    expect(checkboxNamed(firstPane, "Priority").checked).toBe(true);
+    expect(checkboxNamed(firstPane, "Parking").checked).toBe(false);
+    expect(
+      rowsOf(firstPane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
+    ).toEqual(["A1", "A30", "A99", "B1"]);
+    expect(addedFeatures(first.fake).map((feature) => feature.properties?.signCode)).toEqual([
+      "A1",
+      "A30",
+      "A99",
+      "B1",
+    ]);
+
+    // A user can now narrow the migrated selection; that leaf choice persists.
+    await setCheckbox(firstPane, "Other hazards", false);
+    expect(firstWarning.checked).toBe(false);
+    expect(firstWarning.indeterminate).toBe(true);
+
+    const reloaded = bootWithSigns(signs, storage);
+    reloaded.resolveSdkInitialized();
+    await reloaded.started;
+    reloaded.fake.emitWmeReady();
+    await vi.waitFor(() => expect(addedFeatures(reloaded.fake)).toHaveLength(3));
+
+    const reloadedPane = await paneOf(reloaded.fake.registerScriptTab);
+    const reloadedWarning = checkboxNamed(reloadedPane, "Warning signs");
+    expect(reloadedWarning.checked).toBe(false);
+    expect(reloadedWarning.indeterminate).toBe(true);
+    expect(checkboxNamed(reloadedPane, "Other hazards").checked).toBe(false);
+    expect(checkboxNamed(reloadedPane, "Unclassified").checked).toBe(true);
+    expect(
+      rowsOf(reloadedPane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
+    ).toEqual(["A1", "A99", "B1"]);
+    expect(addedFeatures(reloaded.fake).map((feature) => feature.properties?.signCode)).toEqual([
+      "A1",
+      "A99",
+      "B1",
+    ]);
+    expect(first.dataDeps.fetchDataset).not.toHaveBeenCalled();
+    expect(reloaded.dataDeps.fetchDataset).not.toHaveBeenCalled();
   });
 
   it("re-creates the layer once and re-draws after every wme-ready", async () => {

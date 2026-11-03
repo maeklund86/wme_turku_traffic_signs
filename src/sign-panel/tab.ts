@@ -11,7 +11,7 @@ import {
 } from "../constants";
 import type { BoundingBox } from "../data/bounding-box";
 import type { TrafficSign } from "../data/traffic-sign";
-import { filterSignsByCategories, type SignCategoryKey } from "../data/sign-categories";
+import { filterSignsBySelection, type SignFilterKey } from "../data/sign-categories";
 import type { SpatialIndex } from "../data/spatial-index";
 import { overlapsTurkuCoverage } from "../data/turku-coverage";
 import {
@@ -46,7 +46,7 @@ export interface SignPanelTabDeps {
   /** The Visual Overlay state driven by Sign Panel controls (spec §4.5). */
   layer: {
     setVisible(visible: boolean): void;
-    setCategoryFilter(categoryFilter: readonly SignCategoryKey[] | null): void;
+    setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): void;
   };
   /**
    * The in-memory spatial index the viewport list filters against (spec §4.5).
@@ -59,7 +59,7 @@ export interface SignPanelTabDeps {
 export interface SignPanelTab {
   /**
    * WME state (layers, flags) does not survive reload/logout: re-apply the
-   * persisted visibility and Sign Category filters after every wme-ready.
+   * persisted visibility and Sign Category/Subcategory filters after every wme-ready.
    * Registers the tab on the first ready, re-reads coverage, and keeps coverage
    * current on map moves. Idempotent: extra calls neither re-register nor
    * duplicate controls or the permanent attribution footer.
@@ -178,7 +178,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
 
   function applyCategoryFilter(
     panelControls: SignPanelControls,
-    categoryFilter: readonly SignCategoryKey[] | null,
+    categoryFilter: readonly SignFilterKey[] | null,
   ): void {
     panelControls.categoryFilter.setSelected(categoryFilter);
     deps.layer.setCategoryFilter(categoryFilter);
@@ -200,8 +200,8 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
    * The viewport-driven list: exactly the signs inside the current viewport,
    * counted in the header (spec §4.5, AC-20). The query runs against the
    * in-memory spatial index, so a re-filter costs no request and is never
-   * debounced — the viewport is the only spatial input. Sign Categories filter
-   * the same code-prefix groups in both the list and the Visual Overlay.
+   * debounced — the viewport is the only spatial input. The same code-based
+   * tree selection filters the list and the Visual Overlay.
    */
   function applySignList(panelControls: SignPanelControls): void {
     const viewport = viewportOrNull();
@@ -213,7 +213,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       return;
     }
     panelControls.list.render(
-      filterSignsByCategories(
+      filterSignsBySelection(
         deps.spatialIndex.current().query(viewport),
         currentSettings.categoryFilter,
       ),
@@ -271,7 +271,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   }
 
   /** Applies category selection immediately, then persists it with visibility state. */
-  function persistCategoryFilter(categoryFilter: readonly SignCategoryKey[] | null): void {
+  function persistCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): void {
     currentSettings = { ...currentSettings, categoryFilter };
     deps.layer.setCategoryFilter(categoryFilter);
     withAttachedControls(applySignList);
@@ -290,7 +290,7 @@ function buildControls(
   tabLabel: HTMLElement,
   pane: HTMLElement,
   onVisibilityChange: (visible: boolean) => Promise<void>,
-  onCategoryFilterChange: (categoryFilter: readonly SignCategoryKey[] | null) => void,
+  onCategoryFilterChange: (categoryFilter: readonly SignFilterKey[] | null) => void,
 ): SignPanelControls {
   const content = document.createElement("div");
   content.className = SIGN_PANEL_CONTENT_CLASS;

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { openSignPanelTab } from "../src/sign-panel/tab";
 import {
-  SIGN_CATEGORY_CHIP_CLASS,
+  SIGN_CATEGORY_LABEL_CLASS,
   SIGN_PANEL_CONTENT_CLASS,
   SIGN_ROW_CATEGORY_CLASS,
   SIGN_ROW_CODE_CLASS,
@@ -11,6 +11,7 @@ import {
   SIGN_ROW_NAME_CLASS,
   SIGN_ROW_NOTES_FULL_CLASS,
   SIGN_ROW_CLASS,
+  SIGN_VISIBILITY_TOGGLE_CLASS,
 } from "../src/constants";
 import { buildSpatialIndex } from "../src/data/spatial-index";
 import type { TrafficSign } from "../src/data/traffic-sign";
@@ -21,11 +22,13 @@ import { createMemoryStore } from "../src/storage/memory-store";
 import { createFakeWmeSdk } from "./support/fake-wme-sdk";
 import {
   buttonNamed,
+  checkboxNamed,
   fullNotesOf,
   listHeaderOf,
   noticeOf,
   paneOf,
   rowsOf,
+  setCheckbox,
   toggleCheckbox,
   toggleOf,
 } from "./support/sign-panel-pane";
@@ -124,9 +127,8 @@ describe("Sign Panel tab shell", () => {
     expect(pane.querySelectorAll("a, select, textarea, [role='button']")).toHaveLength(0);
     // The only input the tab owns is the visibility checkbox; list rows are
     // disclosure buttons, never inputs.
-    const inputs = pane.querySelectorAll("input");
-    expect(inputs).toHaveLength(1);
-    expect(inputs[0]!.className).toBe("turku-signs-visibility-toggle");
+    expect(pane.querySelectorAll(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`)).toHaveLength(1);
+    expect(checkboxNamed(pane, "Warning signs").type).toBe("checkbox");
   });
 
   it("does not duplicate the controls or the footer when state is re-applied on a later ready", async () => {
@@ -137,7 +139,7 @@ describe("Sign Panel tab shell", () => {
 
     expect(registerScriptTab).toHaveBeenCalledTimes(1);
     const pane = await paneOf(registerScriptTab);
-    expect(pane.querySelectorAll("input")).toHaveLength(1);
+    expect(pane.querySelectorAll(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`)).toHaveLength(1);
     expect(pane.lastElementChild?.textContent).toBe("Traffic sign data © City of Turku, CC BY 4.0");
     expect(layer.setVisible).toHaveBeenCalledTimes(2);
   });
@@ -152,7 +154,8 @@ describe("Sign Panel tab shell", () => {
 
     expect(registerScriptTab).toHaveBeenCalledTimes(2);
     const freshPane = await paneOf(registerScriptTab, 1);
-    expect(freshPane.querySelectorAll("input")).toHaveLength(1);
+    expect(freshPane.querySelectorAll(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`)).toHaveLength(1);
+    expect(checkboxNamed(freshPane, "Warning signs").checked).toBe(true);
     expect(freshPane.lastElementChild?.textContent).toBe(
       "Traffic sign data © City of Turku, CC BY 4.0",
     );
@@ -520,15 +523,15 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     }
   });
 
-  it("shows compact sign-code prefixes on the category filters", async () => {
+  it("shows compact sign-code prefixes beside accessible category checkboxes", async () => {
     const { registerScriptTab, tab } = await openTab();
 
     await tab.refresh();
 
-    const chips = [
-      ...(await paneOf(registerScriptTab)).querySelectorAll(`.${SIGN_CATEGORY_CHIP_CLASS}`),
+    const labels = [
+      ...(await paneOf(registerScriptTab)).querySelectorAll(`.${SIGN_CATEGORY_LABEL_CLASS}`),
     ];
-    expect(chips.map((chip) => chip.textContent?.trim())).toEqual([
+    expect(labels.map((label) => label.textContent?.trim())).toEqual([
       "C32–36.7 Speed limits",
       "B Priority",
       "C37–44, E2–4, F46 Parking",
@@ -636,10 +639,10 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
       rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent);
 
     buttonNamed(pane, "Select none").click();
-    buttonNamed(pane, "Speed limits").click();
+    await setCheckbox(pane, "Speed limits", true);
 
     expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
-    expect(buttonNamed(pane, "Speed limits").getAttribute("aria-pressed")).toBe("true");
+    expect(checkboxNamed(pane, "Speed limits").checked).toBe(true);
     fake.emitMapMoveEnd();
     expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
     await vi.waitFor(async () => {
@@ -648,7 +651,7 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     await tab.refresh();
 
-    expect(buttonNamed(pane, "Parking").getAttribute("aria-pressed")).toBe("false");
+    expect(checkboxNamed(pane, "Parking").checked).toBe(false);
     expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
     buttonNamed(pane, "Select all").click();
     expect(visibleCodes()).toEqual(["C32_2", "C36_7", "C38", "B1"]);

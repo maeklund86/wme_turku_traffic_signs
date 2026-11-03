@@ -1,9 +1,12 @@
 import {
-  SIGN_CATEGORY_CHIP_CLASS,
-  SIGN_CATEGORY_CHIPS_CLASS,
+  SIGN_CATEGORY_CHECKBOX_CLASS,
+  SIGN_CATEGORY_EXPAND_BUTTON_CLASS,
   SIGN_CATEGORY_FILTER_ACTION_CLASS,
   SIGN_CATEGORY_FILTER_ACTIONS_CLASS,
   SIGN_CATEGORY_FILTER_CLASS,
+  SIGN_CATEGORY_LABEL_CLASS,
+  SIGN_CATEGORY_LIST_CLASS,
+  SIGN_CATEGORY_ROW_CLASS,
   SIGN_LIST_CLASS,
   SIGN_LIST_HEADER_CLASS,
   SIGN_PANEL_CONTENT_CLASS,
@@ -16,6 +19,8 @@ import {
   SIGN_ROW_NAME_CLASS,
   SIGN_ROW_NOTES_FULL_CLASS,
   SIGN_ROW_SELECTED_CLASS,
+  SIGN_SUBCATEGORY_GROUP_CLASS,
+  SIGN_SUBCATEGORY_LABEL_CLASS,
 } from "../constants";
 import { SIGN_PLATE_HEIGHT, SIGN_PLATE_WIDTH } from "../visual-overlay/marker-graphics";
 
@@ -36,11 +41,9 @@ const STYLE_ELEMENT_ID = "turku-signs-sign-panel-styles";
 const SIGN_PANEL_CSS = `
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_CLASS} { margin: 0 0 8px; }
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_CLASS} > summary { cursor: pointer; font-weight: 600; }
-.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_ACTIONS_CLASS},
-.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_CHIPS_CLASS} { display: flex; flex-wrap: wrap; gap: 4px; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_ACTIONS_CLASS} { display: flex; flex-wrap: wrap; gap: 4px; }
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_ACTIONS_CLASS} { margin: 4px 0; }
-.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_ACTION_CLASS},
-.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_CHIP_CLASS} {
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_FILTER_ACTION_CLASS} {
   box-sizing: border-box;
   max-width: 100%;
   padding: 2px 8px;
@@ -50,7 +53,19 @@ const SIGN_PANEL_CSS = `
   cursor: pointer;
   white-space: normal;
 }
-.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_CHIP_CLASS} code {
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_LIST_CLASS} { display: grid; gap: 2px; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_ROW_CLASS} { display: flex; align-items: center; gap: 4px; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_LABEL_CLASS},
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_SUBCATEGORY_LABEL_CLASS} {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  cursor: pointer;
+}
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_LABEL_CLASS} { flex: 1; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_CHECKBOX_CLASS} { flex: none; margin: 0; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_LABEL_CLASS} code {
   border-radius: 3px;
   background: rgba(0, 0, 0, 0.08);
   font-family: inherit;
@@ -58,9 +73,23 @@ const SIGN_PANEL_CSS = `
   font-weight: 600;
   padding: 0 3px;
 }
-.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_CHIP_CLASS}[aria-pressed="true"] {
-  border-color: #466080;
-  background: #dce7f5;
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_CATEGORY_EXPAND_BUTTON_CLASS} {
+  flex: none;
+  min-width: 28px;
+  padding: 2px 6px;
+  border: 1px solid #888888;
+  border-radius: 4px;
+  background: #ffffff;
+  cursor: pointer;
+}
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_SUBCATEGORY_GROUP_CLASS} {
+  display: grid;
+  gap: 2px;
+  margin-left: 24px;
+}
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_SUBCATEGORY_GROUP_CLASS}[hidden] { display: none; }
+.${SIGN_PANEL_CONTENT_CLASS} .${SIGN_SUBCATEGORY_LABEL_CLASS} {
+  min-height: 24px;
 }
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_LIST_CLASS} { list-style: none; margin: 0; padding: 0; }
 .${SIGN_PANEL_CONTENT_CLASS} .${SIGN_LIST_CLASS} > li + li { margin-top: 8px; }

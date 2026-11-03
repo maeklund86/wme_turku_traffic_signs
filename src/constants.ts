@@ -13,12 +13,17 @@ export const SIGN_VISIBILITY_LABEL_TEXT = "Show traffic signs";
 /** Wrapper for the visibility checkbox and the coverage notice (spec §4.5). */
 export const SIGN_VISIBILITY_CLASS = "turku-signs-visibility";
 export const SIGN_VISIBILITY_TOGGLE_CLASS = "turku-signs-visibility-toggle";
-/** The collapsible Sign Category filter and its chip controls. */
+/** The collapsible Sign Category filter and its hierarchical checkbox controls. */
 export const SIGN_CATEGORY_FILTER_CLASS = "turku-signs-category-filter";
 export const SIGN_CATEGORY_FILTER_ACTIONS_CLASS = "turku-signs-category-filter-actions";
 export const SIGN_CATEGORY_FILTER_ACTION_CLASS = "turku-signs-category-filter-action";
-export const SIGN_CATEGORY_CHIPS_CLASS = "turku-signs-category-chips";
-export const SIGN_CATEGORY_CHIP_CLASS = "turku-signs-category-chip";
+export const SIGN_CATEGORY_LIST_CLASS = "turku-signs-category-list";
+export const SIGN_CATEGORY_ROW_CLASS = "turku-signs-category-row";
+export const SIGN_CATEGORY_LABEL_CLASS = "turku-signs-category-label";
+export const SIGN_CATEGORY_CHECKBOX_CLASS = "turku-signs-category-checkbox";
+export const SIGN_CATEGORY_EXPAND_BUTTON_CLASS = "turku-signs-category-expand";
+export const SIGN_SUBCATEGORY_GROUP_CLASS = "turku-signs-subcategory-group";
+export const SIGN_SUBCATEGORY_LABEL_CLASS = "turku-signs-subcategory-label";
 /**
  * One-line notice the Sign Panel shows outside the Turku coverage extent,
  * where the toggle is disabled and nothing renders (spec §4.5, AC-17).
