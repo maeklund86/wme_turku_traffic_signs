@@ -489,10 +489,7 @@ describe("visual overlay wiring", () => {
       return checkbox;
     };
     const setWarningFamily = async (family: string, checked: boolean) => {
-      const checkbox = warningSubcategoryCheckbox(family);
-      checkbox.checked = checked;
-      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await setCheckbox(warningSubcategoryCheckbox(family), checked);
     };
     expect(warning.checked).toBe(true);
     expect(warning.indeterminate).toBe(false);
@@ -698,10 +695,7 @@ describe("visual overlay wiring", () => {
     const restrictionCheckbox = (family: string) =>
       restrictionGroup.querySelector<HTMLInputElement>(`input[aria-label="${family}"]`)!;
     const setRestrictionCheckbox = async (family: string, checked: boolean) => {
-      const checkbox = restrictionCheckbox(family);
-      checkbox.checked = checked;
-      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await setCheckbox(restrictionCheckbox(family), checked);
     };
     const visibleCodes = () =>
       rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent);
@@ -989,10 +983,7 @@ describe("Parking category filter wiring", () => {
       return checkbox;
     };
     const setParkingSubcategory = async (label: string, checked: boolean) => {
-      const checkbox = parkingSubcategory(label);
-      checkbox.checked = checked;
-      checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await setCheckbox(parkingSubcategory(label), checked);
     };
     const visiblePanelCodes = () =>
       rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent);
