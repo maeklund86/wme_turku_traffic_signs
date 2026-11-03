@@ -60,6 +60,29 @@ export const SIGN_CATEGORIES = [
     label: "Parking",
     displayCode: "C37–44, E2–4, F46",
     prefixes: ["C37", "C38", "C39", "C40", "C41", "C42", "C43", "C44", "E2", "E3", "E4", "F46"],
+    subcategories: [
+      {
+        key: "parking-restrictions",
+        label: "Stopping and parking restrictions",
+        codePrefixes: [...codeRange("C", 37, 40), "C44"],
+      },
+      {
+        key: "parking-special-vehicles",
+        label: "Special-vehicle parking and loading",
+        codePrefixes: codeRange("C", 41, 43),
+      },
+      {
+        key: "parking-facilities",
+        label: "Parking places and facilities",
+        codePrefixes: [...codeRange("E", 2, 4), "F46"],
+      },
+      {
+        key: "parking-unclassified",
+        label: "Unclassified",
+        codePrefixes: [],
+        unclassified: true,
+      },
+    ],
   },
   {
     key: "warning",
