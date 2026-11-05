@@ -19,7 +19,7 @@
     "typescript": "^7.0.2",
     "typescript-language-server": "^5.3.0",
     "vite-plus": "1.4.0",
-    "wme-sdk-typings": "https://web-assets.waze.com/wme_sdk_docs/production/v2.370-3-gaa6183241e/wme-sdk-typings.tgz"
+    "wme-sdk-typings": "https://web-assets.waze.com/wme_sdk_docs/production/v2.378-6-g016d6916f4/wme-sdk-typings.tgz"
   },
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0"
