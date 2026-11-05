@@ -44,7 +44,7 @@ pointer, and clears itself when the layer is hidden.
 
 | Fact | Where verified |
 | --- | --- |
-| `Map.addLayer` accepts only `layerName`, `styleContext`, `styleRules`, `zIndexing`, and returns `void` | `wme-sdk-typings` (v2.370-3, vendored) |
+| `Map.addLayer` accepts only `layerName`, `styleContext`, `styleRules`, `zIndexing`, and returns `void` | `wme-sdk-typings` (v2.378-6-g016d6916f4, vendored) |
 | `addLayer` throws `InvalidStateError` when the layer name already exists | SDK docs, `index.SDK.Map` |
 | `LayerSwitcher.addLayerCheckbox` is the **only** path to a LayerSwitcher entry — never call it and the layer renders unlisted | SDK changelog v2.254; shipped scripts (Falcon Eye, WME Place Interface Enhancements) |
 | `Map.setLayerVisibility` / `isLayerVisible` (v2.247+); `Map.getMapExtent` (v2.229) | SDK docs |
