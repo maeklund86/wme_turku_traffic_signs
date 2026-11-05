@@ -1,8 +1,8 @@
 import type {
+  AsyncWmeSDK,
   SdkFeature,
   SdkFeatureStyleContext,
   SdkFeatureStyleRule,
-  WmeSDK,
 } from "wme-sdk-typings";
 
 import type { BoundingBox } from "../data/bounding-box";
@@ -35,22 +35,21 @@ export interface SignMarkerLayerMap {
     styleContext?: SdkFeatureStyleContext;
     styleRules?: SdkFeatureStyleRule[];
     zIndexing?: boolean;
-  }): void;
-  addFeatureToLayer(args: { layerName: string; feature: SdkFeature }): void;
-  removeAllFeaturesFromLayer(args: { layerName: string }): void;
-  setLayerVisibility(args: { layerName: string; visibility: boolean }): void;
-  getMapExtent(): number[];
+  }): Promise<void>;
+  addFeatureToLayer(args: { layerName: string; feature: SdkFeature }): Promise<void>;
+  removeAllFeaturesFromLayer(args: { layerName: string }): Promise<void>;
+  setLayerVisibility(args: { layerName: string; visibility: boolean }): Promise<void>;
+  getMapExtent(): Promise<number[]>;
   /** The map element the marker pointer puts its cursor on (AC-10). */
-  getMapViewportElement(): HTMLElement;
+  getMapViewportElement(): Promise<HTMLElement>;
 }
 
 export interface SignMarkerLayerDeps {
   /**
    * The WME SDK; only its `Map` and `Events` surfaces are ever touched.
-   * `Events` is the SDK's own type because its `on` is generic over the event
-   * name and cannot be mirrored structurally.
+   * `Events` remains synchronous in async mode, so keep the SDK's generic type.
    */
-  sdk: { Map: SignMarkerLayerMap; Events: WmeSDK["Events"] };
+  sdk: { Map: SignMarkerLayerMap; Events: AsyncWmeSDK["Events"] };
   /** Reports map selection without touching WME's native editing selection. */
   onSelectionChange?: (sign: TrafficSign | null) => void;
 }
@@ -63,11 +62,11 @@ export interface SignMarkerLayerDeps {
  */
 export interface SignMarkerLayer {
   /** Creates the layer on first use, then re-applies the visibility flag. */
-  setVisible(visible: boolean): void;
+  setVisible(visible: boolean): Promise<void>;
   /** Changes which category-tree branches render, without reloading the dataset. */
-  setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): void;
+  setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): Promise<void>;
   /** Replaces the viewport's filtered markers, preserving each source coordinate. */
-  render(signs: readonly TrafficSign[]): void;
+  render(signs: readonly TrafficSign[]): Promise<void>;
 }
 
 export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer {
@@ -77,6 +76,9 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     mapViewportElement: () => deps.sdk.Map.getMapViewportElement(),
   });
   let layerCreated = false;
+  let layerSetup: Promise<void> | null = null;
+  let renderQueue: Promise<void> = Promise.resolve();
+  let renderRequest = 0;
   let hasRendered = false;
   let renderedSigns: readonly TrafficSign[] = [];
   let renderedIndex: SpatialIndex = buildSpatialIndex([]);
@@ -87,64 +89,88 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
 
   return { setVisible, setCategoryFilter, render };
 
-  function ensureLayer(): void {
+  async function ensureLayer(): Promise<void> {
     if (layerCreated) return;
-    // Deliberately no sdk.LayerSwitcher.addLayerCheckbox here, or anywhere else:
-    // the switcher entry is opt-in and the overlay's controls live in the Sign
-    // Panel (AC-12).
-    map.addLayer({
-      layerName: SIGN_LAYER_NAME,
-      styleContext: SIGN_MARKER_STYLE_CONTEXT,
-      // A fresh array per layer: the SDK entry point takes a mutable one.
-      styleRules: [...SIGN_MARKER_STYLE_RULES],
-      zIndexing: true,
-    });
-    layerCreated = true;
-    markerPointer.start(SIGN_LAYER_NAME);
-    deps.sdk.Events.on({
-      eventName: "wme-layer-feature-clicked",
-      eventHandler: onFeatureClicked,
-    });
-    deps.sdk.Events.on({ eventName: "wme-map-mouse-click", eventHandler: onMapClicked });
-    deps.sdk.Events.on({ eventName: "wme-map-move-end", eventHandler: onMapMoved });
+    layerSetup ??= (async () => {
+      // Deliberately no sdk.LayerSwitcher.addLayerCheckbox here, or anywhere else:
+      // the switcher entry is opt-in and the overlay's controls live in the Sign
+      // Panel (AC-12).
+      await map.addLayer({
+        layerName: SIGN_LAYER_NAME,
+        styleContext: SIGN_MARKER_STYLE_CONTEXT,
+        // A fresh array per layer: the SDK entry point takes a mutable one.
+        styleRules: [...SIGN_MARKER_STYLE_RULES],
+        zIndexing: true,
+      });
+      layerCreated = true;
+      markerPointer.start(SIGN_LAYER_NAME);
+      deps.sdk.Events.on({
+        eventName: "wme-layer-feature-clicked",
+        eventHandler: onFeatureClicked,
+      });
+      deps.sdk.Events.on({ eventName: "wme-map-mouse-click", eventHandler: onMapClicked });
+      deps.sdk.Events.on({ eventName: "wme-map-move-end", eventHandler: onMapMoved });
+    })();
+    try {
+      await layerSetup;
+    } catch (error) {
+      layerSetup = null;
+      throw error;
+    }
   }
 
-  function setVisible(visible: boolean): void {
-    ensureLayer();
+  async function setVisible(visible: boolean): Promise<void> {
+    await ensureLayer();
     // Set explicitly rather than trusting the default: whether a freshly added
     // layer starts visible is not documented (spec §4.4).
-    map.setLayerVisibility({ layerName: SIGN_LAYER_NAME, visibility: visible });
+    await map.setLayerVisibility({ layerName: SIGN_LAYER_NAME, visibility: visible });
     // A marker the pointer was over a moment ago is gone; without this the
     // cursor stays a pointer over empty map (AC-10).
-    if (!visible) markerPointer.clear();
+    if (!visible) await markerPointer.clear();
   }
 
-  function setCategoryFilter(filter: readonly SignFilterKey[] | null): void {
+  async function setCategoryFilter(filter: readonly SignFilterKey[] | null): Promise<void> {
     if (sameFilterSelection(categoryFilter, filter)) return;
     categoryFilter = filter;
-    if (hasRendered) renderVisibleSigns();
+    if (hasRendered) await renderVisibleSigns();
   }
 
-  function render(signs: readonly TrafficSign[]): void {
+  async function render(signs: readonly TrafficSign[]): Promise<void> {
     renderedSigns = signs;
     renderedIndex = buildSpatialIndex(signs);
     renderedPositions = new Map(signs.map((sign, position) => [sign, position]));
     hasRendered = true;
-    renderVisibleSigns();
+    await renderVisibleSigns();
   }
 
   function onMapMoved(): void {
-    if (hasRendered) renderVisibleSigns();
+    if (hasRendered) {
+      void renderVisibleSigns().catch((error: unknown) => {
+        console.error("[turku-signs] Failed to render markers after map move", error);
+      });
+    }
   }
 
-  function renderVisibleSigns(): void {
-    ensureLayer();
+  function renderVisibleSigns(): Promise<void> {
+    const request = ++renderRequest;
+    const rendering = renderQueue.then(() => renderVisibleSignsNow(request));
+    renderQueue = rendering.catch(() => undefined);
+    return rendering;
+  }
+
+  async function renderVisibleSignsNow(request: number): Promise<void> {
+    await ensureLayer();
+    if (request !== renderRequest) return;
     // WME keeps the layer across a wme-ready, so a repeat render replaces the
     // markers instead of stacking a second set on top of the first.
-    map.removeAllFeaturesFromLayer({ layerName: SIGN_LAYER_NAME });
-    const rawExtent = map.getMapExtent();
+    await map.removeAllFeaturesFromLayer({ layerName: SIGN_LAYER_NAME });
+    if (request !== renderRequest) return;
+    const rawExtent = await map.getMapExtent();
+    if (request !== renderRequest) return;
     const extent = isBoundingBox(rawExtent) ? rawExtent : null;
-    const viewportRect = map.getMapViewportElement().getBoundingClientRect();
+    const viewport = await map.getMapViewportElement();
+    if (request !== renderRequest) return;
+    const viewportRect = viewport.getBoundingClientRect();
     const queryBounds =
       extent === null ? null : expandBounds(extent, viewportRect.width, viewportRect.height);
     const signsInView = queryBounds === null ? renderedSigns : renderedIndex.query(queryBounds);
@@ -164,12 +190,13 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
             height: viewportRect.height,
           });
     for (const [visiblePosition, sign] of visibleSigns.entries()) {
+      if (request !== renderRequest) return;
       const position = renderedPositions.get(sign) ?? visiblePosition;
       // Coordinates go straight through: the Trimble OGC API serves GeoJSON
       // Point WGS84 and the SDK speaks WGS84, so there is nothing to reproject
       // (AC-9).
       const [longitude, latitude] = sign.coordinates;
-      map.addFeatureToLayer({
+      await map.addFeatureToLayer({
         layerName: SIGN_LAYER_NAME,
         feature: {
           type: "Feature",

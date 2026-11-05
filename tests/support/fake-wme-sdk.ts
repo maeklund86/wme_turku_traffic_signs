@@ -1,6 +1,11 @@
 import { vi } from "vite-plus/test";
 
-import type { SdkFeature } from "wme-sdk-typings";
+import type {
+  AsyncWmeSDK,
+  SdkFeature,
+  SdkFeatureStyleContext,
+  SdkFeatureStyleRule,
+} from "wme-sdk-typings";
 
 import { TURKU_EXTENT } from "../../src/constants";
 
@@ -23,17 +28,28 @@ const SUPPORTED_EVENTS = [
 export function createFakeMapSurface(
   mapElement: HTMLElement | (() => never) = document.createElement("div"),
 ) {
-  const addLayer = vi.fn();
-  const addFeatureToLayer = vi.fn(
-    (args: { layerName: string; feature: SdkFeature }) => args.feature,
+  const addLayer = vi.fn(
+    async (_args: {
+      layerName: string;
+      styleContext?: SdkFeatureStyleContext;
+      styleRules?: SdkFeatureStyleRule[];
+      zIndexing?: boolean;
+    }): Promise<void> => undefined,
   );
-  const removeAllFeaturesFromLayer = vi.fn();
-  const setLayerVisibility = vi.fn();
-  const getMapViewportElement = vi.fn(() =>
+  const addFeatureToLayer = vi.fn(
+    async (_args: { layerName: string; feature: SdkFeature }): Promise<void> => undefined,
+  );
+  const removeAllFeaturesFromLayer = vi.fn(
+    async (_args: { layerName: string }): Promise<void> => undefined,
+  );
+  const setLayerVisibility = vi.fn(
+    async (_args: { layerName: string; visibility: boolean }): Promise<void> => undefined,
+  );
+  const getMapViewportElement = vi.fn(async () =>
     typeof mapElement === "function" ? mapElement() : mapElement,
   );
   /** Defaults to a viewport inside the Turku coverage extent; override per test. */
-  const getMapExtent = vi.fn((): number[] => [...TURKU_EXTENT]);
+  const getMapExtent = vi.fn(async (): Promise<number[]> => [...TURKU_EXTENT]);
   return {
     Map: {
       addLayer,
@@ -119,7 +135,7 @@ export function createFakeWmeSdk() {
       },
       trackLayerEvents: eventBus.trackLayerEvents,
     },
-  };
+  } as unknown as AsyncWmeSDK;
   return {
     sdk,
     registerScriptTab,

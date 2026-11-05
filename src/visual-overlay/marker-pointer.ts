@@ -5,7 +5,7 @@ export interface MarkerPointerDeps {
   /** `sdk.Events` — hover events for the layers the SDK tracks. */
   Events: WmeSDK["Events"];
   /** `sdk.Map.getMapViewportElement` — throws when WME has no map element yet. */
-  mapViewportElement: () => HTMLElement;
+  mapViewportElement: () => HTMLElement | Promise<HTMLElement>;
 }
 
 /**
@@ -26,7 +26,7 @@ export interface MarkerPointer {
    * Drops the pointer, restoring whatever was there before. Hiding the layer
    * while the pointer sits on a marker would otherwise strand it.
    */
-  clear(): void;
+  clear(): Promise<void>;
 }
 
 const POINTER_CURSOR = "pointer";
@@ -39,6 +39,7 @@ export function openMarkerPointer(deps: MarkerPointerDeps): MarkerPointer {
   /** Markers under the pointer, so leaving one for its neighbour can't strand it. */
   let hovering = 0;
   let cursorBefore = "";
+  let pointerWork = Promise.resolve();
 
   return { start, clear };
 
@@ -55,23 +56,30 @@ export function openMarkerPointer(deps: MarkerPointerDeps): MarkerPointer {
     ];
   }
 
-  function clear(): void {
-    hovering = 0;
-    restoreCursor();
+  function clear(): Promise<void> {
+    return queuePointerWork(async () => {
+      hovering = 0;
+      await restoreCursor();
+    });
   }
 
   function onHoverEnter(payload: { layerName: string }): void {
-    if (payload.layerName !== trackedLayerName) return;
-    if (hovering === 0) cursorBefore = currentCursor();
-    hovering += 1;
-    const element = mapElement();
-    if (element !== null) element.style.cursor = POINTER_CURSOR;
+    void queuePointerWork(async () => {
+      if (payload.layerName !== trackedLayerName) return;
+      const element = await mapElement();
+      if (element === null) return;
+      if (hovering === 0) cursorBefore = element.style.cursor;
+      hovering += 1;
+      element.style.cursor = POINTER_CURSOR;
+    });
   }
 
   function onHoverLeave(payload: { layerName: string }): void {
-    if (payload.layerName !== trackedLayerName) return;
-    hovering = Math.max(0, hovering - 1);
-    if (hovering === 0) restoreCursor();
+    void queuePointerWork(async () => {
+      if (payload.layerName !== trackedLayerName) return;
+      hovering = Math.max(0, hovering - 1);
+      if (hovering === 0) await restoreCursor();
+    });
   }
 
   function stopTracking(): void {
@@ -85,28 +93,34 @@ export function openMarkerPointer(deps: MarkerPointerDeps): MarkerPointer {
     }
     unsubscribers = [];
     if (trackedLayerName !== null) {
-      hovering = 0;
-      restoreCursor();
+      void queuePointerWork(async () => {
+        hovering = 0;
+        await restoreCursor();
+      });
     }
     trackedLayerName = null;
   }
 
-  function currentCursor(): string {
-    return mapElement()?.style.cursor ?? "";
-  }
-
-  function restoreCursor(): void {
-    const element = mapElement();
+  async function restoreCursor(): Promise<void> {
+    const element = await mapElement();
     if (element !== null) element.style.cursor = cursorBefore;
   }
 
-  function mapElement(): HTMLElement | null {
+  async function mapElement(): Promise<HTMLElement | null> {
     try {
-      return deps.mapViewportElement() ?? null;
+      return (await deps.mapViewportElement()) ?? null;
     } catch {
       // MissingElementError: WME has no map element yet. The pointer is
       // cosmetic, so an absent map element is never worth failing a hover over.
       return null;
     }
+  }
+
+  function queuePointerWork(work: () => Promise<void>): Promise<void> {
+    const queued = pointerWork.then(work);
+    pointerWork = queued.catch((error: unknown) => {
+      console.error("[turku-signs] Failed to update marker cursor", error);
+    });
+    return queued;
   }
 }

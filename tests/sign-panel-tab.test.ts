@@ -42,8 +42,10 @@ const OUTSIDE_TURKU = [21.5, 60.0, 22.0, 60.2];
 
 /** Stands in for the Visual Overlay; the panel only ever drives its visibility. */
 function createFakeLayer() {
-  const setVisible = vi.fn();
-  const setCategoryFilter = vi.fn();
+  const setVisible = vi.fn(async (_visible: boolean): Promise<void> => undefined);
+  const setCategoryFilter = vi.fn(
+    async (_categoryFilter: readonly string[] | null): Promise<void> => undefined,
+  );
   return { setVisible, setCategoryFilter, layer: { setVisible, setCategoryFilter } };
 }
 
@@ -56,7 +58,7 @@ async function openTab(
   } = {},
 ) {
   const fake = createFakeWmeSdk();
-  fake.map.getMapExtent.mockReturnValue(options.covered === false ? OUTSIDE_TURKU : INSIDE_TURKU);
+  fake.map.getMapExtent.mockResolvedValue(options.covered === false ? OUTSIDE_TURKU : INSIDE_TURKU);
   const repository = options.repository ?? new SettingsRepository(createMemoryStore());
   const layer = createFakeLayer();
   let activeSigns = options.signs ?? [];
@@ -94,6 +96,17 @@ describe("Sign Panel tab shell", () => {
 
     expect(fake.registerScriptTab).not.toHaveBeenCalled();
     expect(fake.events.on).not.toHaveBeenCalled();
+  });
+
+  it("waits for async map bounds before disabling controls outside Turku", async () => {
+    const { fake, registerScriptTab, tab } = await openTab({ covered: false });
+    fake.map.getMapExtent.mockResolvedValue(OUTSIDE_TURKU);
+
+    await tab.refresh();
+
+    const pane = await paneOf(registerScriptTab);
+    expect(toggleOf(pane).disabled).toBe(true);
+    expect(noticeOf(pane).hidden).toBe(false);
   });
 
   it("registers the script tab, its checkbox and the attribution footer on ready", async () => {
@@ -266,9 +279,10 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
     expect(noticeOf(pane).hidden).toBe(false);
 
     // The user pans Helsinki → Turku: no wme-ready, just a finished map move.
-    fake.map.getMapExtent.mockReturnValue(INSIDE_TURKU);
+    fake.map.getMapExtent.mockResolvedValue(INSIDE_TURKU);
     fake.emitMapMoveEnd();
 
+    await vi.waitFor(() => expect(noticeOf(pane).hidden).toBe(true));
     expect(noticeOf(pane).hidden).toBe(true);
     expect(toggleOf(pane).disabled).toBe(false);
     // Coverage never drives the layer: only the ready applied the flag, once.
@@ -282,9 +296,10 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
     const pane = await paneOf(registerScriptTab);
     expect(toggleOf(pane).disabled).toBe(false);
 
-    fake.map.getMapExtent.mockReturnValue(OUTSIDE_TURKU);
+    fake.map.getMapExtent.mockResolvedValue(OUTSIDE_TURKU);
     fake.emitMapMoveEnd();
 
+    await vi.waitFor(() => expect(toggleOf(pane).disabled).toBe(true));
     expect(toggleOf(pane).disabled).toBe(true);
     expect(noticeOf(pane).hidden).toBe(false);
     expect(layer.setVisible).toHaveBeenCalledTimes(1);
@@ -297,7 +312,7 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
     const stalePane = await paneOf(registerScriptTab);
     stalePane.remove();
 
-    fake.map.getMapExtent.mockReturnValue(OUTSIDE_TURKU);
+    fake.map.getMapExtent.mockResolvedValue(OUTSIDE_TURKU);
     expect(() => fake.emitMapMoveEnd()).not.toThrow();
 
     // The detached pane keeps whatever the last ready left on it.
@@ -322,7 +337,7 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
     const { fake, registerScriptTab, tab } = await openTab();
 
     // Not four coordinates at all.
-    fake.map.getMapExtent.mockReturnValue([22.2]);
+    fake.map.getMapExtent.mockResolvedValue([22.2]);
     await tab.refresh();
 
     const pane = await paneOf(registerScriptTab);
@@ -339,7 +354,7 @@ describe("Sign Panel outside Turku coverage (AC-17)", () => {
     silenceConsole();
     const { fake, registerScriptTab, tab } = await openTab();
 
-    fake.map.getMapExtent.mockReturnValue([22.2, 60.4, 22.3, Number.NaN]);
+    fake.map.getMapExtent.mockResolvedValue([22.2, 60.4, 22.3, Number.NaN]);
     await tab.refresh();
 
     expect(toggleOf(await paneOf(registerScriptTab)).disabled).toBe(false);
@@ -367,9 +382,10 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     ).toEqual(["C38 Pysäköinti kielletty", "C38 Pysäköinti kielletty"]);
 
     // The user zooms in: no wme-ready, just a finished map move.
-    fake.map.getMapExtent.mockReturnValue([22.24, 60.44, 22.26, 60.46]);
+    fake.map.getMapExtent.mockResolvedValue([22.24, 60.44, 22.26, 60.46]);
     fake.emitMapMoveEnd();
 
+    await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("1 sign in view"));
     expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
     expect(rowsOf(pane)).toHaveLength(1);
     // The single row is still a row of this pane's list — nothing was replaced.
@@ -410,6 +426,7 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     setActiveSigns([NEARBY, OTHER]);
     fake.emitMapMoveEnd();
 
+    await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("2 signs in view"));
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
   });
 
@@ -422,7 +439,7 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
     // The dataset resolves after the ready rendered the list from an empty index.
     setActiveSigns([NEARBY, OTHER]);
-    tab.refreshSignList();
+    await tab.refreshSignList();
 
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
     expect(rowsOf(pane)).toHaveLength(2);
@@ -641,10 +658,12 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     buttonNamed(pane, "Select none").click();
     await setCheckbox(pane, "Speed limits", true);
 
+    await vi.waitFor(() => expect(visibleCodes()).toEqual(["C32_2", "C36_7"]));
     expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
     expect(checkboxNamed(pane, "Speed limits").checked).toBe(true);
     expect(checkboxNamed(pane, "Speed limits").indeterminate).toBe(false);
     fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(visibleCodes()).toEqual(["C32_2", "C36_7"]));
     expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
     await vi.waitFor(async () => {
       expect(await repository.load()).toMatchObject({
@@ -662,6 +681,7 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     expect(checkboxNamed(pane, "Parking").checked).toBe(false);
     expect(visibleCodes()).toEqual(["C32_2", "C36_7"]);
     buttonNamed(pane, "Select all").click();
+    await vi.waitFor(() => expect(visibleCodes()).toEqual(["C32_2", "C36_7", "C38", "B1"]));
     expect(visibleCodes()).toEqual(["C32_2", "C36_7", "C38", "B1"]);
   });
 
@@ -686,15 +706,17 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     const pane = await paneOf(registerScriptTab);
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
 
-    fake.map.getMapExtent.mockReturnValue([22.2]);
+    fake.map.getMapExtent.mockResolvedValue([22.2]);
     fake.emitMapMoveEnd();
 
+    await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("Sign count unavailable"));
     expect(listHeaderOf(pane).textContent).toBe("Sign count unavailable");
     expect(rowsOf(pane)).toHaveLength(0);
 
-    fake.map.getMapExtent.mockReturnValue(INSIDE_TURKU);
+    fake.map.getMapExtent.mockResolvedValue(INSIDE_TURKU);
     fake.emitMapMoveEnd();
 
+    await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("2 signs in view"));
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
     expect(rowsOf(pane)).toHaveLength(2);
   });
