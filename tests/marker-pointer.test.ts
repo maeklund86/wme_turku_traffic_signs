@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { WmeSDK } from "wme-sdk-typings";
 
@@ -8,7 +8,9 @@ import { createFakeEventBus } from "./support/fake-wme-sdk";
 const LAYER = "turku_traffic_signs";
 const OTHER_LAYER = "someone_elses_layer";
 
-function createHost(mapElement: () => HTMLElement = () => document.createElement("div")) {
+function createHost(
+  mapElement: () => HTMLElement | Promise<HTMLElement> = () => document.createElement("div"),
+) {
   const events = createFakeEventBus();
   return {
     deps: { Events: events as unknown as WmeSDK["Events"], mapViewportElement: mapElement },
@@ -31,17 +33,17 @@ function mapElementThatThrows(): () => never {
   };
 }
 describe("marker pointer (AC-10)", () => {
-  it("shows a pointer over a marker", () => {
+  it("shows a pointer over a marker", async () => {
     const mapElement = document.createElement("div");
     mapElement.style.cursor = "";
     const host = createHost(() => mapElement);
     openMarkerPointer(host.deps).start(LAYER);
 
     enter(host);
-    expect(mapElement.style.cursor).toBe("pointer");
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("pointer"));
   });
 
-  it("restores the map's own cursor when the pointer leaves", () => {
+  it("restores the map's own cursor when the pointer leaves", async () => {
     const mapElement = document.createElement("div");
     mapElement.style.cursor = "crosshair";
     const host = createHost(() => mapElement);
@@ -49,10 +51,10 @@ describe("marker pointer (AC-10)", () => {
 
     enter(host);
     leave(host);
-    expect(mapElement.style.cursor).toBe("crosshair");
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("crosshair"));
   });
 
-  it("holds the pointer across adjacent markers instead of stranding it", () => {
+  it("holds the pointer across adjacent markers instead of stranding it", async () => {
     const mapElement = document.createElement("div");
     mapElement.style.cursor = "crosshair";
     const host = createHost(() => mapElement);
@@ -62,24 +64,27 @@ describe("marker pointer (AC-10)", () => {
     // Moving straight from one marker to the next: enter arrives before leave.
     enter(host);
     leave(host);
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("pointer"));
     expect(mapElement.style.cursor).toBe("pointer");
     leave(host);
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("crosshair"));
     expect(mapElement.style.cursor).toBe("crosshair");
   });
 
-  it("ignores hover events belonging to other scripts' layers", () => {
+  it("ignores hover events belonging to other scripts' layers", async () => {
     const mapElement = document.createElement("div");
     const host = createHost(() => mapElement);
     openMarkerPointer(host.deps).start(LAYER);
 
     enter(host, OTHER_LAYER);
+    await vi.waitFor(() => expect(mapElement.style.cursor).not.toBe("pointer"));
     expect(mapElement.style.cursor).not.toBe("pointer");
     // And a stray leave must not restore what our own marker never changed.
     leave(host, OTHER_LAYER);
     expect(mapElement.style.cursor).toBe("");
   });
 
-  it("clears the pointer outright, for when the layer is hidden", () => {
+  it("clears the pointer outright, for when the layer is hidden", async () => {
     const mapElement = document.createElement("div");
     mapElement.style.cursor = "crosshair";
     const host = createHost(() => mapElement);
@@ -87,7 +92,8 @@ describe("marker pointer (AC-10)", () => {
     pointer.start(LAYER);
 
     enter(host);
-    pointer.clear();
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("pointer"));
+    await pointer.clear();
     expect(mapElement.style.cursor).toBe("crosshair");
   });
 
@@ -107,5 +113,18 @@ describe("marker pointer (AC-10)", () => {
 
     expect(() => enter(host)).not.toThrow();
     expect(() => leave(host)).not.toThrow();
+  });
+
+  it("uses the async SDK viewport element for hover events", async () => {
+    const mapElement = document.createElement("div");
+    mapElement.style.cursor = "crosshair";
+    const host = createHost(async () => mapElement);
+    openMarkerPointer(host.deps).start(LAYER);
+
+    enter(host);
+
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("pointer"));
+    leave(host);
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("crosshair"));
   });
 });

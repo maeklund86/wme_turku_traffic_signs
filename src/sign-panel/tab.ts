@@ -38,15 +38,15 @@ export interface SignPanelTabDeps {
       /** Re-checks coverage when the user finishes moving the map. */
       on(args: { eventName: "wme-map-move-end"; eventHandler: () => void }): unknown;
     };
-    Map: { getMapExtent(): number[] };
+    Map: { getMapExtent(): Promise<number[]> };
   };
   /** The WME page document (userscript sandboxes run in an isolated world — pass the page's). */
   document: Document;
   settingsRepository: SettingsRepository;
   /** The Visual Overlay state driven by Sign Panel controls (spec §4.5). */
   layer: {
-    setVisible(visible: boolean): void;
-    setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): void;
+    setVisible(visible: boolean): Promise<void>;
+    setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): Promise<void>;
   };
   /**
    * The in-memory spatial index the viewport list filters against (spec §4.5).
@@ -72,7 +72,7 @@ export interface SignPanelTab {
    * resolves later still — an ingest finishing after the ready left the list
    * reading the previous index.
    */
-  refreshSignList(): void;
+  refreshSignList(): Promise<void>;
   /** Opens the script tab and selects a sign row, or clears the inline detail. */
   selectSign(sign: TrafficSign | null): void;
 }
@@ -104,23 +104,23 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       ensureAttributionFooter(deps.document, tabControls.pane);
 
       currentSettings = await deps.settingsRepository.load();
-      applyFlag(tabControls, currentSettings.showSigns);
-      applyCategoryFilter(tabControls, currentSettings.categoryFilter);
-      applyCoverage(tabControls);
-      applySignList(tabControls);
+      await applyFlag(tabControls, currentSettings.showSigns);
+      await applyCategoryFilter(tabControls, currentSettings.categoryFilter);
+      await applyCoverage(tabControls);
+      await applySignList(tabControls);
     },
 
-    refreshSignList(): void {
+    refreshSignList(): Promise<void> {
       // The list belongs to the pane the last ready registered; one WME has
       // replaced is rebuilt (and re-populated) by the next ready.
-      withAttachedControls(applySignList);
+      return withAttachedControls(applySignList);
     },
 
     selectSign(sign: TrafficSign | null): void {
-      withAttachedControls((panelControls) => {
-        if (sign !== null) panelControls.tabLabel.click();
-        panelControls.list.select(sign);
-      });
+      const panelControls = attachedControls();
+      if (panelControls === null) return;
+      if (sign !== null) panelControls.tabLabel.click();
+      panelControls.list.select(sign);
     },
   };
 
@@ -152,17 +152,28 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   function onMapMoved(): void {
     // A pane WME replaced is rebuilt by the next ready; updating a detached one
     // would only write into a document nobody is looking at.
-    withAttachedControls((panelControls) => {
-      applyCoverage(panelControls);
-      applySignList(panelControls);
+    void withAttachedControls(async (panelControls) => {
+      await applyCoverage(panelControls);
+      await applySignList(panelControls);
+    }).catch((error: unknown) => {
+      console.error("[turku-signs] Failed to update the Sign Panel after map move", error);
     });
   }
 
-  /** Runs an update only while WME's current tab pane remains attached. */
-  function withAttachedControls(update: (panelControls: SignPanelControls) => void): void {
+  /** The current pane, but only while WME has left it attached. */
+  function attachedControls(): SignPanelControls | null {
     const panelControls = controls;
-    if (panelControls === null || !deps.document.contains(panelControls.pane)) return;
-    update(panelControls);
+    return panelControls !== null && deps.document.contains(panelControls.pane)
+      ? panelControls
+      : null;
+  }
+
+  /** Runs an update only while WME's current tab pane remains attached. */
+  async function withAttachedControls(
+    update: (panelControls: SignPanelControls) => void | Promise<void>,
+  ): Promise<void> {
+    const panelControls = attachedControls();
+    if (panelControls !== null) await update(panelControls);
   }
 
   /**
@@ -171,17 +182,17 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
    * the flag cannot change, so re-reading storage per map move would only
    * widen the window in which a click's save could be clobbered.
    */
-  function applyFlag(panelControls: SignPanelControls, visible: boolean): void {
+  async function applyFlag(panelControls: SignPanelControls, visible: boolean): Promise<void> {
     panelControls.toggle.checked = visible;
-    deps.layer.setVisible(visible);
+    await deps.layer.setVisible(visible);
   }
 
-  function applyCategoryFilter(
+  async function applyCategoryFilter(
     panelControls: SignPanelControls,
     categoryFilter: readonly SignFilterKey[] | null,
-  ): void {
+  ): Promise<void> {
     panelControls.categoryFilter.setSelected(categoryFilter);
-    deps.layer.setCategoryFilter(categoryFilter);
+    await deps.layer.setCategoryFilter(categoryFilter);
   }
 
   /**
@@ -190,8 +201,8 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
    * (spec §4.5, AC-17) — see the render site in bootstrap for why that is
    * enough.
    */
-  function applyCoverage(panelControls: SignPanelControls): void {
-    const covered = isCovered();
+  async function applyCoverage(panelControls: SignPanelControls): Promise<void> {
+    const covered = await isCovered();
     panelControls.toggle.disabled = !covered;
     panelControls.notice.hidden = covered;
   }
@@ -203,8 +214,8 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
    * debounced — the viewport is the only spatial input. The same code-based
    * tree selection filters the list and the Visual Overlay.
    */
-  function applySignList(panelControls: SignPanelControls): void {
-    const viewport = viewportOrNull();
+  async function applySignList(panelControls: SignPanelControls): Promise<void> {
+    const viewport = await viewportOrNull();
     // An unusable viewport was already warned about, once, by the coverage read
     // on the same event. Clear stale rows rather than claiming they belong to
     // the current viewport.
@@ -227,14 +238,14 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
    * show an enabled toggle, while counting it as uncovered would park the
    * panel behind a notice the user cannot act on. Warned once per page load.
    */
-  function isCovered(): boolean {
-    const viewport = viewportOrNull();
+  async function isCovered(): Promise<boolean> {
+    const viewport = await viewportOrNull();
     return viewport === null ? true : overlapsTurkuCoverage(viewport);
   }
 
   /** The viewport as a Bounding Box, or null when the SDK's bounds are unusable. */
-  function viewportOrNull(): BoundingBox | null {
-    const [left, bottom, right, top] = deps.sdk.Map.getMapExtent();
+  async function viewportOrNull(): Promise<BoundingBox | null> {
+    const [left, bottom, right, top] = await deps.sdk.Map.getMapExtent();
     if (
       isFiniteCoordinate(left) &&
       isFiniteCoordinate(bottom) &&
@@ -273,8 +284,12 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   /** Applies category selection immediately, then persists it with visibility state. */
   function persistCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): void {
     currentSettings = { ...currentSettings, categoryFilter };
-    deps.layer.setCategoryFilter(categoryFilter);
-    withAttachedControls(applySignList);
+    void deps.layer.setCategoryFilter(categoryFilter).catch((error: unknown) => {
+      console.error("[turku-signs] Failed to apply Sign Category filter", error);
+    });
+    void withAttachedControls(applySignList).catch((error: unknown) => {
+      console.error("[turku-signs] Failed to update the Sign Panel list", error);
+    });
     void saveSettings(currentSettings).catch((error: unknown) => {
       console.error("[turku-signs] Failed to persist Sign Category filter", error);
     });

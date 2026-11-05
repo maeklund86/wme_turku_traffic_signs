@@ -56,15 +56,16 @@ function unmatchedSign(): TrafficSign {
 }
 
 describe("Visual Overlay marker layer (AC-9)", () => {
-  it("keeps the captured H23.1 and B5 markers from occupying the same screen area", () => {
+  it("keeps the captured H23.1 and B5 markers from occupying the same screen area", async () => {
     const host = createHost();
     const extent = [22.264443876265606, 60.46130271478339, 22.265238480685568, 60.46170338718052];
-    host.getMapExtent.mockReturnValue(extent);
-    vi.spyOn(host.getMapViewportElement(), "getBoundingClientRect").mockReturnValue({
+    host.getMapExtent.mockResolvedValue(extent);
+    const viewport = await host.getMapViewportElement();
+    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({
       width: 1185,
       height: 1212,
     } as DOMRect);
-    openSignMarkerLayer({ sdk: host }).render([
+    await openSignMarkerLayer({ sdk: host }).render([
       sign("320960333", 22.264860598507497, 60.461534953264746, { signCode: "H23.1" }),
       sign("320960332", 22.2648600526969, 60.46153497718211, { signCode: "B5" }),
     ]);
@@ -128,26 +129,27 @@ describe("Visual Overlay marker layer (AC-9)", () => {
     expect(rendered.map((feature) => feature.geometry.coordinates)).toEqual([first, second]);
   });
 
-  it("recalculates marker offsets when the map viewport changes", () => {
+  it("recalculates marker offsets when the map viewport changes", async () => {
     const host = createHost();
-    const viewport = host.getMapViewportElement();
+    const viewport = await host.getMapViewportElement();
     vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({
       width: 1185,
       height: 1212,
     } as DOMRect);
-    host.getMapExtent.mockReturnValue([
+    host.getMapExtent.mockResolvedValue([
       22.264443876265606, 60.46130271478339, 22.265238480685568, 60.46170338718052,
     ]);
     const layer = openSignMarkerLayer({ sdk: host });
-    layer.render([
+    await layer.render([
       sign("320960333", 22.264860598507497, 60.461534953264746, { signCode: "H23.1" }),
       sign("320960332", 22.2648600526969, 60.46153497718211, { signCode: "B5" }),
     ]);
     host.addFeatureToLayer.mockClear();
 
-    host.getMapExtent.mockReturnValue([22.264859, 60.461534, 22.264862, 60.461536]);
+    host.getMapExtent.mockResolvedValue([22.264859, 60.461534, 22.264862, 60.461536]);
     host.events.emit("wme-map-move-end", undefined);
 
+    await vi.waitFor(() => expect(host.addFeatureToLayer).toHaveBeenCalledTimes(2));
     expect(host.removeAllFeaturesFromLayer).toHaveBeenCalledTimes(2);
     expect(features(host)).toHaveLength(2);
     expect(
@@ -155,9 +157,9 @@ describe("Visual Overlay marker layer (AC-9)", () => {
     ).toEqual([-23, -23]);
   });
 
-  it("creates exactly one SDK marker layer, with the overlay's styling", () => {
+  it("creates exactly one SDK marker layer, with the overlay's styling", async () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host }).setVisible(true);
+    await openSignMarkerLayer({ sdk: host }).setVisible(true);
 
     expect(host.addLayer).toHaveBeenCalledTimes(1);
     const args = host.addLayer.mock.calls[0]![0]!;
@@ -167,10 +169,10 @@ describe("Visual Overlay marker layer (AC-9)", () => {
     expect(args.zIndexing).toBe(true);
   });
 
-  it("adds one feature per sign, at its WGS84 point, with no reprojection", () => {
+  it("adds one feature per sign, at its WGS84 point, with no reprojection", async () => {
     const host = createHost();
     const signs = [sign("1", 22.27617187661397, 60.443853785959234), sign("2", 22.1, 60.4)];
-    openSignMarkerLayer({ sdk: host }).render(signs);
+    await openSignMarkerLayer({ sdk: host }).render(signs);
 
     expect(host.addFeatureToLayer.mock.calls.map(([{ layerName }]) => layerName)).toEqual([
       LAYER,
@@ -188,73 +190,100 @@ describe("Visual Overlay marker layer (AC-9)", () => {
     expect(added.map((feature) => feature.id)).toEqual(["1", "2"]);
   });
 
-  it("keeps the registry key as the feature id, falling back when absent", () => {
+  it("keeps the registry key as the feature id, falling back when absent", async () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host }).render([sign("", 22.2, 60.4), sign("known", 22.2, 60.41)]);
+    await openSignMarkerLayer({ sdk: host }).render([
+      sign("", 22.2, 60.4),
+      sign("known", 22.2, 60.41),
+    ]);
 
     expect(features(host).map((feature) => feature.id)).toEqual(["turku-sign/0", "known"]);
   });
 
-  it("sets the layer's visibility once, rather than leaving it to chance", () => {
+  it("sets the layer's visibility once, rather than leaving it to chance", async () => {
     const host = createHost();
     const layer = openSignMarkerLayer({ sdk: host });
 
-    layer.setVisible(false);
+    await layer.setVisible(false);
     expect(host.setLayerVisibility).toHaveBeenCalledWith({ layerName: LAYER, visibility: false });
-    layer.setVisible(true);
+    await layer.setVisible(true);
     expect(host.setLayerVisibility).toHaveBeenLastCalledWith({
       layerName: LAYER,
       visibility: true,
     });
   });
 
-  it("filters marker features by speed subcategory, not localized sign name", () => {
+  it("waits for WME to finish changing layer visibility", async () => {
+    const host = createHost();
+    let finishVisibilityChange!: () => void;
+    host.setLayerVisibility.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishVisibilityChange = resolve;
+        }),
+    );
+    const layer = openSignMarkerLayer({ sdk: host });
+
+    const visibilityChange = layer.setVisible(false);
+    let finished = false;
+    const observed = Promise.resolve(visibilityChange).then(() => {
+      finished = true;
+    });
+    await vi.waitFor(() => expect(host.setLayerVisibility).toHaveBeenCalled());
+    expect(finished).toBe(false);
+
+    finishVisibilityChange();
+    await observed;
+    expect(finished).toBe(true);
+  });
+
+  it("filters marker features by speed subcategory, not localized sign name", async () => {
     const host = createHost();
     const layer = openSignMarkerLayer({ sdk: host });
-    layer.render([
+    await layer.render([
       sign("speed", 22.25, 60.45, { signCode: "C32_2", signName: "Pysäköinti kielletty" }),
       sign("parking", 22.26, 60.45, { signCode: "C38", signName: "No speed limit" }),
       sign("priority", 22.27, 60.45, { signCode: "B1" }),
     ]);
 
     host.addFeatureToLayer.mockClear();
-    layer.setCategoryFilter(["speed-limits-general"]);
+    await layer.setCategoryFilter(["speed-limits-general"]);
 
     expect(features(host).map((feature) => feature.id)).toEqual(["speed"]);
   });
 
-  it("re-creates the layer only once, and re-draws cleanly on a later render", () => {
+  it("re-creates the layer only once, and re-draws cleanly on a later render", async () => {
     const host = createHost();
     const layer = openSignMarkerLayer({ sdk: host });
 
-    layer.setVisible(true);
-    layer.render([sign("1", 22.2, 60.4)]);
-    layer.render([sign("2", 22.2, 60.4)]);
+    await layer.setVisible(true);
+    await layer.render([sign("1", 22.2, 60.4)]);
+    await layer.render([sign("2", 22.2, 60.4)]);
 
     expect(host.addLayer).toHaveBeenCalledTimes(1);
     expect(host.removeAllFeaturesFromLayer).toHaveBeenCalledTimes(2);
     expect(features(host).map((feature) => feature.id)).toEqual(["1", "2"]);
   });
 
-  it("starts tracking the layer's hover events, so the pointer can move", () => {
+  it("starts tracking the layer's hover events, so the pointer can move", async () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host }).setVisible(true);
+    await openSignMarkerLayer({ sdk: host }).setVisible(true);
 
     expect(host.events.trackLayerEvents).toHaveBeenCalledTimes(1);
     expect(host.events.trackLayerEvents).toHaveBeenCalledWith({ layerName: LAYER });
   });
 
-  it("drops the pointer when the layer is hidden, so it can't strand on empty map", () => {
+  it("drops the pointer when the layer is hidden, so it can't strand on empty map", async () => {
     const host = createHost();
-    const mapElement = host.getMapViewportElement();
+    const mapElement = await host.getMapViewportElement();
     mapElement.style.cursor = "crosshair";
     const layer = openSignMarkerLayer({ sdk: host });
 
-    layer.setVisible(true);
+    await layer.setVisible(true);
     host.events.emit("wme-layer-feature-mouse-enter", { layerName: LAYER, featureId: "1" });
-    expect(mapElement.style.cursor).toBe("pointer");
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("pointer"));
 
-    layer.setVisible(false);
+    await layer.setVisible(false);
     expect(mapElement.style.cursor).toBe("crosshair");
   });
 });
@@ -346,9 +375,9 @@ describe("Visual Overlay marker styling (AC-10)", () => {
 });
 
 describe("Visual Overlay missing-asset fallback (AC-11)", () => {
-  it("routes a sign with no official SVG to the code plate", () => {
+  it("routes a sign with no official SVG to the code plate", async () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host }).render([unmatchedSign()]);
+    await openSignMarkerLayer({ sdk: host }).render([unmatchedSign()]);
 
     expect(features(host)[0]!.properties).toMatchObject({
       [MARKER_KIND_PROPERTY]: FALLBACK_MARKER,
@@ -364,9 +393,9 @@ describe("Visual Overlay missing-asset fallback (AC-11)", () => {
     expect(plateRule!.style.graphicHeight).toBe(22);
   });
 
-  it("invents no substitute icon and hides no sign", () => {
+  it("invents no substitute icon and hides no sign", async () => {
     const host = createHost();
-    openSignMarkerLayer({ sdk: host }).render([unmatchedSign(), sign("matched", 22.2, 60.4)]);
+    await openSignMarkerLayer({ sdk: host }).render([unmatchedSign(), sign("matched", 22.2, 60.4)]);
 
     expect(features(host)).toHaveLength(2);
     const graphic = graphicFor("990");

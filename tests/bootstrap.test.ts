@@ -98,6 +98,7 @@ describe("userscript bootstrap", () => {
     expect(pageWindow.getWmeSdk).toHaveBeenCalledWith({
       scriptId: "wme-turku-traffic-signs",
       scriptName: "WME Turku Traffic Signs",
+      mode: "async",
     });
   });
 
@@ -285,6 +286,7 @@ describe("visual overlay wiring", () => {
     });
     return {
       fake,
+      pageWindow,
       resolveSdkInitialized,
       dataDeps,
       storage,
@@ -310,6 +312,29 @@ describe("visual overlay wiring", () => {
     const pane = await paneOf(fake.registerScriptTab);
     return { fake, tabLabel, rows: rowsOf(pane), features: addedFeatures(fake) };
   }
+
+  it("handles async SDK failures from map-move event callbacks", async () => {
+    silenceConsole();
+    const { fake, resolveSdkInitialized, started } = bootWithSigns([sign("1", 22.2, 60.4)]);
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+
+    fake.map.getMapExtent.mockRejectedValue(new Error("map extent unavailable"));
+    fake.emitMapMoveEnd();
+
+    await vi.waitFor(() => {
+      expect(console.error).toHaveBeenCalledWith(
+        "[turku-signs] Failed to render markers after map move",
+        expect.any(Error),
+      );
+      expect(console.error).toHaveBeenCalledWith(
+        "[turku-signs] Failed to update the Sign Panel after map move",
+        expect.any(Error),
+      );
+    });
+  });
 
   it("creates one marker layer on wme-ready and puts one feature per sign on it", async () => {
     const { fake, resolveSdkInitialized, started } = bootWithSigns([
@@ -425,6 +450,9 @@ describe("visual overlay wiring", () => {
     buttonNamed(pane, "Select none").click();
     await setCheckbox(pane, "Speed limits", true);
 
+    await vi.waitFor(() =>
+      expect(addedFeatures(fake).map((feature) => feature.id)).toEqual(["speed", "lane-speed"]),
+    );
     expect(addedFeatures(fake).map((feature) => feature.id)).toEqual(["speed", "lane-speed"]);
     const settingsRepository = new SettingsRepository(storage);
     await vi.waitFor(async () => {
@@ -553,6 +581,10 @@ describe("visual overlay wiring", () => {
 
     fake.map.addFeatureToLayer.mockClear();
     fake.emitMapMoveEnd();
+    await vi.waitFor(() => {
+      expect(visibleCodes()).toEqual(selectedCodes);
+      expect(markerCodes()).toEqual(selectedCodes);
+    });
     expect(visibleCodes()).toEqual(selectedCodes);
     expect(markerCodes()).toEqual(selectedCodes);
     expect(dataDeps.fetchDataset).not.toHaveBeenCalled();
@@ -586,6 +618,7 @@ describe("visual overlay wiring", () => {
     expect(warning.checked).toBe(false);
     expect(checkboxNamed(pane, "Priority").checked).toBe(false);
     expect(checkboxNamed(pane, "Other").checked).toBe(false);
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(0));
     expect(rowsOf(pane)).toHaveLength(0);
   });
 
@@ -744,6 +777,10 @@ describe("visual overlay wiring", () => {
 
     fake.map.addFeatureToLayer.mockClear();
     fake.emitMapMoveEnd();
+    await vi.waitFor(() => {
+      expect(visibleCodes()).toEqual(selectedCodes);
+      expect(markerCodes()).toEqual(selectedCodes);
+    });
     expect(visibleCodes()).toEqual(selectedCodes);
     expect(markerCodes()).toEqual(selectedCodes);
     expect(dataDeps.fetchDataset).not.toHaveBeenCalled();
@@ -904,20 +941,20 @@ describe("visual overlay wiring", () => {
     fake.emitWmeReady();
     await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
 
-    const mapElement = fake.map.getMapViewportElement();
+    const mapElement = await fake.map.getMapViewportElement();
     mapElement.style.cursor = "crosshair";
 
     fake.emitFeatureHover("wme-layer-feature-mouse-enter", {
       layerName: SIGN_LAYER_NAME,
       featureId: "1",
     });
-    expect(mapElement.style.cursor).toBe("pointer");
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("pointer"));
 
     fake.emitFeatureHover("wme-layer-feature-mouse-leave", {
       layerName: SIGN_LAYER_NAME,
       featureId: "1",
     });
-    expect(mapElement.style.cursor).toBe("crosshair");
+    await vi.waitFor(() => expect(mapElement.style.cursor).toBe("crosshair"));
   });
 });
 
@@ -1067,7 +1104,7 @@ describe("Sign Panel visibility control", () => {
       fake.sdk as unknown as WmeSDK,
     );
     // A viewport west of Turku that misses the coverage extent entirely.
-    fake.map.getMapExtent.mockReturnValue([21.5, 60.0, 22.0, 60.2]);
+    fake.map.getMapExtent.mockResolvedValue([21.5, 60.0, 22.0, 60.2]);
     const started = bootstrap({
       pageWindow,
       document: globalThis.document,

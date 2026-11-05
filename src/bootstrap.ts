@@ -1,5 +1,3 @@
-import type { WmeSDK } from "wme-sdk-typings";
-
 import { SCRIPT_ID, SCRIPT_NAME } from "./constants";
 import type { DatasetStore } from "./data/dataset-store";
 import type { SignDatasetRecord } from "./data/sign-dataset-record";
@@ -9,11 +7,12 @@ import { SettingsRepository } from "./settings/settings-repository";
 import { openSignMarkerLayer } from "./visual-overlay/sign-marker-layer";
 import { openSignPanelTab } from "./sign-panel/tab";
 import type { KeyValueStore } from "./storage/key-value-store";
+import { getAsyncWmeSdk } from "./wme-sdk-async";
 
 /** The WME page window (userscripts with grants see a sandboxed window, so callers pass the page's). */
 export interface SdkHostWindow {
   SDK_INITIALIZED: Promise<unknown>;
-  getWmeSdk?: (options: { scriptId: string; scriptName: string }) => WmeSDK;
+  getWmeSdk?: Window["getWmeSdk"];
 }
 
 export interface BootstrapDeps {
@@ -48,7 +47,7 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
   if (typeof getWmeSdk !== "function") {
     throw new Error("WME SDK is not available on this page: getWmeSdk is missing.");
   }
-  const sdk = getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
+  const sdk = getAsyncWmeSdk(getWmeSdk, { scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
 
   const settingsRepository = new SettingsRepository(deps.storage);
   let selectPanelSign: (sign: TrafficSign | null) => void = () => undefined;
@@ -103,9 +102,9 @@ export async function bootstrap(deps: BootstrapDeps): Promise<void> {
     // Cache-first and non-blocking: a fresh cache renders with zero requests;
     // a stale one renders now and swaps in the background.
     const dataset = await signDataset.load();
-    markerLayer.render(dataset.index.signs);
+    await markerLayer.render(dataset.index.signs);
     // The ready rendered the list against whatever the index held then; the
     // load may have just swapped a whole dataset in (spec §4.5, AC-20).
-    signPanel.refreshSignList();
+    await signPanel.refreshSignList();
   }
 }
