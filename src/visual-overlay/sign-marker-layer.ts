@@ -8,7 +8,7 @@ import type {
 import type { BoundingBox } from "../data/bounding-box";
 import { buildSpatialIndex, type SpatialIndex } from "../data/spatial-index";
 import type { TrafficSign } from "../data/traffic-sign";
-import { filterSignsByCategories, type SignCategoryKey } from "../data/sign-categories";
+import { filterSignsBySelection, type SignFilterKey } from "../data/sign-categories";
 import { SIGN_LAYER_NAME } from "../constants";
 import {
   MARKER_KIND_PROPERTY,
@@ -64,8 +64,8 @@ export interface SignMarkerLayerDeps {
 export interface SignMarkerLayer {
   /** Creates the layer on first use, then re-applies the visibility flag. */
   setVisible(visible: boolean): void;
-  /** Changes which code-prefix categories render, without reloading the dataset. */
-  setCategoryFilter(categoryFilter: readonly SignCategoryKey[] | null): void;
+  /** Changes which category-tree branches render, without reloading the dataset. */
+  setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): void;
   /** Replaces the viewport's filtered markers, preserving each source coordinate. */
   render(signs: readonly TrafficSign[]): void;
 }
@@ -81,7 +81,7 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
   let renderedSigns: readonly TrafficSign[] = [];
   let renderedIndex: SpatialIndex = buildSpatialIndex([]);
   let renderedPositions = new Map<TrafficSign, number>();
-  let categoryFilter: readonly SignCategoryKey[] | null = null;
+  let categoryFilter: readonly SignFilterKey[] | null = null;
   let mapClickTimer: ReturnType<typeof setTimeout> | null = null;
   let markerClickAwaitingMapEvent = false;
 
@@ -119,8 +119,8 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     if (!visible) markerPointer.clear();
   }
 
-  function setCategoryFilter(filter: readonly SignCategoryKey[] | null): void {
-    if (sameCategoryFilter(categoryFilter, filter)) return;
+  function setCategoryFilter(filter: readonly SignFilterKey[] | null): void {
+    if (sameFilterSelection(categoryFilter, filter)) return;
     categoryFilter = filter;
     if (hasRendered) renderVisibleSigns();
   }
@@ -148,7 +148,7 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     const queryBounds =
       extent === null ? null : expandBounds(extent, viewportRect.width, viewportRect.height);
     const signsInView = queryBounds === null ? renderedSigns : renderedIndex.query(queryBounds);
-    const visibleSigns = filterSignsByCategories(signsInView, categoryFilter);
+    const visibleSigns = filterSignsBySelection(signsInView, categoryFilter);
     const placements: readonly MarkerPlacement[] =
       extent === null
         ? visibleSigns.map(() => ({
@@ -238,9 +238,9 @@ function expandBounds(bounds: BoundingBox, width: number, height: number): Bound
   ];
 }
 
-function sameCategoryFilter(
-  left: readonly SignCategoryKey[] | null,
-  right: readonly SignCategoryKey[] | null,
+function sameFilterSelection(
+  left: readonly SignFilterKey[] | null,
+  right: readonly SignFilterKey[] | null,
 ): boolean {
   if (left === null || right === null) return left === right;
   return left.length === right.length && left.every((category, index) => category === right[index]);

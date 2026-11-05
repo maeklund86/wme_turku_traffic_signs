@@ -32,6 +32,41 @@ export function buttonNamed(pane: HTMLElement, label: string): HTMLButtonElement
   return button;
 }
 
+/** A Sign Category or Sign Subcategory checkbox by its accessible name. */
+export function checkboxNamed(pane: HTMLElement, name: string): HTMLInputElement {
+  const checkbox = [...pane.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+    (candidate) => candidate.getAttribute("aria-label") === name,
+  );
+  if (!checkbox) throw new Error(`Sign Panel checkbox "${name}" was not rendered`);
+  return checkbox;
+}
+
+/** The separate disclosure control for one category's subcategories. */
+export function expansionButtonNamed(pane: HTMLElement, label: string): HTMLButtonElement {
+  const button = [...pane.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.getAttribute("aria-label") === label,
+  );
+  if (!button) throw new Error(`Sign Panel disclosure "${label}" was not rendered`);
+  return button;
+}
+
+/** Changes a filter checkbox as a user does and waits for storage to settle. */
+export function setCheckbox(pane: HTMLElement, name: string, checked: boolean): Promise<void>;
+export function setCheckbox(checkbox: HTMLInputElement, checked: boolean): Promise<void>;
+export async function setCheckbox(
+  paneOrCheckbox: HTMLElement | HTMLInputElement,
+  nameOrChecked: string | boolean,
+  checked?: boolean,
+): Promise<void> {
+  const checkbox =
+    typeof nameOrChecked === "string"
+      ? checkboxNamed(paneOrCheckbox, nameOrChecked)
+      : (paneOrCheckbox as HTMLInputElement);
+  checkbox.checked = typeof nameOrChecked === "boolean" ? nameOrChecked : checked!;
+  checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /** The visibility checkbox the Sign Panel renders into its pane. */
 export function toggleOf(pane: HTMLElement): HTMLInputElement {
   const toggle = pane.querySelector<HTMLInputElement>(`.${SIGN_VISIBILITY_TOGGLE_CLASS}`);

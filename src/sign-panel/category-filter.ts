@@ -1,23 +1,39 @@
 import {
-  SIGN_CATEGORY_CHIP_CLASS,
-  SIGN_CATEGORY_CHIPS_CLASS,
+  SIGN_CATEGORY_CHECKBOX_CLASS,
+  SIGN_CATEGORY_EXPAND_BUTTON_CLASS,
   SIGN_CATEGORY_FILTER_ACTIONS_CLASS,
   SIGN_CATEGORY_FILTER_ACTION_CLASS,
   SIGN_CATEGORY_FILTER_CLASS,
+  SIGN_CATEGORY_LABEL_CLASS,
+  SIGN_CATEGORY_LIST_CLASS,
+  SIGN_CATEGORY_ROW_CLASS,
+  SIGN_SUBCATEGORY_GROUP_CLASS,
+  SIGN_SUBCATEGORY_LABEL_CLASS,
 } from "../constants";
-import { SIGN_CATEGORIES, type SignCategoryKey } from "../data/sign-categories";
+import {
+  filterKeysForCategory,
+  SIGN_CATEGORIES,
+  SIGN_FILTER_KEYS,
+  type SignFilterKey,
+} from "../data/sign-categories";
 
 export interface SignCategoryFilter {
   /** The collapsible block placed at the top of the Sign Panel. */
   element: HTMLDetailsElement;
   /** Applies persisted selection without emitting a change. */
-  setSelected(categoryFilter: readonly SignCategoryKey[] | null): void;
+  setSelected(filter: readonly SignFilterKey[] | null): void;
 }
 
-/** Builds accessible category chips and select-all/none controls. */
+interface CategoryControl {
+  checkbox: HTMLInputElement;
+  keys: readonly SignFilterKey[];
+  children: readonly { key: SignFilterKey; checkbox: HTMLInputElement }[];
+}
+
+/** Builds an accessible checkbox tree with whole-tree select-all/none controls. */
 export function openSignCategoryFilter(
   document: Document,
-  onChange: (categoryFilter: readonly SignCategoryKey[] | null) => void,
+  onChange: (filter: readonly SignFilterKey[] | null) => void,
 ): SignCategoryFilter {
   const details = document.createElement("details");
   details.className = SIGN_CATEGORY_FILTER_CLASS;
@@ -29,11 +45,11 @@ export function openSignCategoryFilter(
   const actions = document.createElement("div");
   actions.className = SIGN_CATEGORY_FILTER_ACTIONS_CLASS;
 
-  const chips = document.createElement("div");
-  chips.className = SIGN_CATEGORY_CHIPS_CLASS;
+  const categories = document.createElement("div");
+  categories.className = SIGN_CATEGORY_LIST_CLASS;
 
-  const selected = new Set<SignCategoryKey>(SIGN_CATEGORIES.map(({ key }) => key));
-  const chipButtons = new Map<SignCategoryKey, HTMLButtonElement>();
+  const selected = new Set<SignFilterKey>(SIGN_FILTER_KEYS);
+  const controls: CategoryControl[] = [];
 
   const selectAll = actionButton(document, "Select all");
   selectAll.addEventListener("click", () => setSelectedAndNotify(null));
@@ -42,56 +58,124 @@ export function openSignCategoryFilter(
   actions.append(selectAll, selectNone);
 
   for (const category of SIGN_CATEGORIES) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = SIGN_CATEGORY_CHIP_CLASS;
+    const row = document.createElement("div");
+    row.className = SIGN_CATEGORY_ROW_CLASS;
+
+    const label = document.createElement("label");
+    label.className = SIGN_CATEGORY_LABEL_CLASS;
+    const checkbox = filterCheckbox(document, category.label);
+    label.append(checkbox);
     if (category.displayCode !== null) {
       const code = document.createElement("code");
       code.textContent = category.displayCode;
-      chip.append(code, document.createTextNode(" "));
+      label.append(code, document.createTextNode(" "));
     }
-    chip.append(document.createTextNode(category.label));
-    chip.setAttribute("aria-pressed", "true");
-    chip.addEventListener("click", () => {
-      if (selected.has(category.key)) selected.delete(category.key);
-      else selected.add(category.key);
+    label.append(document.createTextNode(category.label));
+    row.append(label);
+
+    const keys = filterKeysForCategory(category.key);
+    const children: { key: SignFilterKey; checkbox: HTMLInputElement }[] = [];
+    if ("subcategories" in category) {
+      const groupId = `turku-signs-subcategories-${category.key}`;
+      const group = document.createElement("div");
+      group.id = groupId;
+      group.className = SIGN_SUBCATEGORY_GROUP_CLASS;
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", `${category.label} subcategories`);
+      group.hidden = true;
+
+      for (const subcategory of category.subcategories) {
+        const childLabel = document.createElement("label");
+        childLabel.className = SIGN_SUBCATEGORY_LABEL_CLASS;
+        const childCheckbox = filterCheckbox(document, subcategory.label);
+        childLabel.append(childCheckbox, document.createTextNode(subcategory.label));
+        group.append(childLabel);
+        children.push({ key: subcategory.key, checkbox: childCheckbox });
+        childCheckbox.addEventListener("change", () => {
+          setKeySelected(subcategory.key, childCheckbox.checked);
+          renderSelection();
+          onChange(selectedFilter());
+        });
+      }
+
+      const expand = document.createElement("button");
+      expand.type = "button";
+      expand.className = SIGN_CATEGORY_EXPAND_BUTTON_CLASS;
+      expand.textContent = "▸";
+      expand.setAttribute("aria-expanded", "false");
+      expand.setAttribute("aria-controls", groupId);
+      expand.setAttribute("aria-label", `Expand ${category.label} subcategories`);
+      expand.title = `Expand ${category.label} subcategories`;
+      expand.addEventListener("click", () => {
+        const expanded = group.hidden;
+        group.hidden = !expanded;
+        expand.textContent = expanded ? "▾" : "▸";
+        expand.setAttribute("aria-expanded", String(expanded));
+        const action = expanded ? "Collapse" : "Expand";
+        expand.setAttribute("aria-label", `${action} ${category.label} subcategories`);
+        expand.title = `${action} ${category.label} subcategories`;
+      });
+      row.append(expand);
+      categories.append(row, group);
+    } else {
+      categories.append(row);
+    }
+
+    checkbox.addEventListener("change", () => {
+      for (const key of keys) setKeySelected(key, checkbox.checked);
       renderSelection();
       onChange(selectedFilter());
     });
-    chipButtons.set(category.key, chip);
-    chips.append(chip);
+    controls.push({ checkbox, keys, children });
   }
 
-  details.append(summary, actions, chips);
+  details.append(summary, actions, categories);
   renderSelection();
 
   return { element: details, setSelected };
 
-  function setSelected(categoryFilter: readonly SignCategoryKey[] | null): void {
+  function setSelected(filter: readonly SignFilterKey[] | null): void {
     selected.clear();
-    for (const category of SIGN_CATEGORIES) {
-      if (categoryFilter === null || categoryFilter.includes(category.key)) {
-        selected.add(category.key);
-      }
+    for (const key of SIGN_FILTER_KEYS) {
+      if (filter === null || filter.includes(key)) selected.add(key);
     }
     renderSelection();
   }
 
-  function setSelectedAndNotify(categoryFilter: readonly SignCategoryKey[] | null): void {
-    setSelected(categoryFilter);
+  function setSelectedAndNotify(filter: readonly SignFilterKey[] | null): void {
+    setSelected(filter);
     onChange(selectedFilter());
   }
 
-  function selectedFilter(): readonly SignCategoryKey[] | null {
-    if (selected.size === SIGN_CATEGORIES.length) return null;
-    return SIGN_CATEGORIES.filter(({ key }) => selected.has(key)).map(({ key }) => key);
+  function selectedFilter(): readonly SignFilterKey[] | null {
+    if (selected.size === SIGN_FILTER_KEYS.length) return null;
+    return SIGN_FILTER_KEYS.filter((key) => selected.has(key));
+  }
+
+  function setKeySelected(key: SignFilterKey, isSelected: boolean): void {
+    if (isSelected) selected.add(key);
+    else selected.delete(key);
   }
 
   function renderSelection(): void {
-    for (const [key, chip] of chipButtons) {
-      chip.setAttribute("aria-pressed", String(selected.has(key)));
+    for (const control of controls) {
+      const selectedChildren = control.keys.filter((key) => selected.has(key)).length;
+      control.checkbox.checked = selectedChildren === control.keys.length;
+      control.checkbox.indeterminate =
+        selectedChildren > 0 && selectedChildren < control.keys.length;
+      for (const child of control.children) {
+        child.checkbox.checked = selected.has(child.key);
+      }
     }
   }
+}
+
+function filterCheckbox(document: Document, accessibleName: string): HTMLInputElement {
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = SIGN_CATEGORY_CHECKBOX_CLASS;
+  checkbox.setAttribute("aria-label", accessibleName);
+  return checkbox;
 }
 
 function actionButton(document: Document, label: string): HTMLButtonElement {

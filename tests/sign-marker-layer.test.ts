@@ -208,7 +208,7 @@ describe("Visual Overlay marker layer (AC-9)", () => {
     });
   });
 
-  it("filters marker features by sign-code category, not localized sign name", () => {
+  it("filters marker features by speed subcategory, not localized sign name", () => {
     const host = createHost();
     const layer = openSignMarkerLayer({ sdk: host });
     layer.render([
@@ -218,7 +218,7 @@ describe("Visual Overlay marker layer (AC-9)", () => {
     ]);
 
     host.addFeatureToLayer.mockClear();
-    layer.setCategoryFilter(["speed-limits"]);
+    layer.setCategoryFilter(["speed-limits-general"]);
 
     expect(features(host).map((feature) => feature.id)).toEqual(["speed"]);
   });
