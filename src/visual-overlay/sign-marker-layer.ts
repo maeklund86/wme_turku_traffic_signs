@@ -7,7 +7,7 @@ import type {
 
 import type { BoundingBox } from "../data/bounding-box";
 import { buildSpatialIndex, type SpatialIndex } from "../data/spatial-index";
-import type { TrafficSign } from "../data/traffic-sign";
+import { sameTrafficSign, type TrafficSign } from "../data/traffic-sign";
 import { filterSignsBySelection, type SignFilterKey } from "../data/sign-categories";
 import { SIGN_LAYER_NAME } from "../constants";
 import {
@@ -65,6 +65,8 @@ export interface SignMarkerLayer {
   setVisible(visible: boolean): Promise<void>;
   /** Changes which category-tree branches render, without reloading the dataset. */
   setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): Promise<void>;
+  /** Keeps marker visibility checks aligned with Sign Panel row selection. */
+  setSelectedSign(sign: TrafficSign | null): void;
   /** Replaces the viewport's filtered markers, preserving each source coordinate. */
   render(signs: readonly TrafficSign[]): Promise<void>;
 }
@@ -86,8 +88,9 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
   let categoryFilter: readonly SignFilterKey[] | null = null;
   let mapClickTimer: ReturnType<typeof setTimeout> | null = null;
   let markerClickAwaitingMapEvent = false;
+  let selectedSign: TrafficSign | null = null;
 
-  return { setVisible, setCategoryFilter, render };
+  return { setVisible, setCategoryFilter, setSelectedSign, render };
 
   async function ensureLayer(): Promise<void> {
     if (layerCreated) return;
@@ -135,6 +138,10 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     if (hasRendered) await renderVisibleSigns();
   }
 
+  function setSelectedSign(sign: TrafficSign | null): void {
+    selectedSign = sign;
+  }
+
   async function render(signs: readonly TrafficSign[]): Promise<void> {
     renderedSigns = signs;
     renderedIndex = buildSpatialIndex(signs);
@@ -175,6 +182,16 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
       extent === null ? null : expandBounds(extent, viewportRect.width, viewportRect.height);
     const signsInView = queryBounds === null ? renderedSigns : renderedIndex.query(queryBounds);
     const visibleSigns = filterSignsBySelection(signsInView, categoryFilter);
+    if (selectedSign !== null) {
+      const visibleSelection = visibleSigns.find((sign) => sameTrafficSign(sign, selectedSign!));
+      if (visibleSelection === undefined) {
+        selectedSign = null;
+        deps.onSelectionChange?.(null);
+      } else if (selectedSign !== visibleSelection) {
+        selectedSign = visibleSelection;
+        deps.onSelectionChange?.(visibleSelection);
+      }
+    }
     const placements: readonly MarkerPlacement[] =
       extent === null
         ? visibleSigns.map(() => ({
@@ -232,7 +249,10 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     const clickedSign = renderedSigns.find(
       (sign, position) => signFeatureId(sign, position) === String(payload.featureId),
     );
-    if (clickedSign !== undefined) deps.onSelectionChange?.(clickedSign);
+    if (clickedSign !== undefined) {
+      selectedSign = clickedSign;
+      deps.onSelectionChange?.(clickedSign);
+    }
   }
 
   function onMapClicked(): void {
@@ -243,6 +263,7 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     if (mapClickTimer !== null) clearTimeout(mapClickTimer);
     mapClickTimer = setTimeout(() => {
       mapClickTimer = null;
+      selectedSign = null;
       deps.onSelectionChange?.(null);
     }, 0);
   }

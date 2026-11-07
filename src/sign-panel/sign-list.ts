@@ -11,7 +11,7 @@ import {
   SIGN_ROW_NOTES_FULL_CLASS,
   SIGN_ROW_SELECTED_CLASS,
 } from "../constants";
-import type { TrafficSign } from "../data/traffic-sign";
+import { sameTrafficSign, type TrafficSign } from "../data/traffic-sign";
 import { categoryForCode } from "../data/sign-categories";
 import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
 
@@ -34,10 +34,15 @@ interface SignRow {
   sign: TrafficSign;
   item: HTMLElement;
   setSelected(selected: boolean): void;
+  setNotesExpanded(expanded: boolean): void;
 }
 
 /** Creates the list's header and rows inside the tab pane. */
-export function openSignList(document: Document, pane: HTMLElement): SignList {
+export function openSignList(
+  document: Document,
+  pane: HTMLElement,
+  onRowActivate: (sign: TrafficSign) => void,
+): SignList {
   const header = document.createElement("div");
   header.className = SIGN_LIST_HEADER_CLASS;
 
@@ -47,24 +52,50 @@ export function openSignList(document: Document, pane: HTMLElement): SignList {
   pane.append(header, list);
   let signs: readonly TrafficSign[] = [];
   let rows: SignRow[] = [];
+  let temporaryRow: SignRow | null = null;
   let selectedSign: TrafficSign | null = null;
+  let expandedSign: TrafficSign | null = null;
   return { render, select, markUnavailable };
 
   function render(nextSigns: readonly TrafficSign[]): void {
     // Whole-list replacement, not patching: the viewport decides membership,
     // so every move recalculates membership. Rows remain in fetch order, which
     // keeps the list stable across moves.
-    if (selectedSign !== null && !nextSigns.includes(selectedSign)) selectedSign = null;
+    if (selectedSign !== null) {
+      const listedSign = nextSigns.find((sign) => sameTrafficSign(sign, selectedSign!));
+      if (listedSign !== undefined) {
+        if (selectedSign !== listedSign && expandedSign === selectedSign) {
+          expandedSign = listedSign;
+        }
+        selectedSign = listedSign;
+        temporaryRow = null;
+      } else if (temporaryRow?.sign !== selectedSign) {
+        // The Visual Overlay can render a marker just beyond strict list
+        // bounds. Keep that selected Traffic Sign as a temporary row; the
+        // marker layer clears it when it is no longer in its padded query.
+        temporaryRow = buildRow(document, selectedSign, activate);
+      }
+    }
     signs = nextSigns;
     header.textContent = countText(nextSigns.length);
-    rows = nextSigns.map((sign) => buildRow(document, sign));
-    for (const row of rows) row.setSelected(row.sign === selectedSign);
-    list.replaceChildren(...rows.map((row) => row.item));
+    rows = nextSigns.map((sign) => buildRow(document, sign, activate));
+    updateRows();
+    renderRows();
   }
 
   function select(sign: TrafficSign | null): void {
-    selectedSign = sign !== null && signs.includes(sign) ? sign : null;
-    for (const row of rows) row.setSelected(row.sign === selectedSign);
+    selectedSign =
+      sign === null ? null : (signs.find((listed) => sameTrafficSign(listed, sign)) ?? sign);
+    expandedSign = selectedSign?.notes === null || selectedSign === null ? null : selectedSign;
+    temporaryRow =
+      selectedSign !== null && !signs.some((listed) => sameTrafficSign(listed, selectedSign!))
+        ? buildRow(document, selectedSign, activate)
+        : null;
+    updateRows();
+    renderRows();
+    if (selectedSign !== null) {
+      rowFor(selectedSign)?.item.scrollIntoView?.();
+    }
   }
 
   function markUnavailable(): void {
@@ -74,7 +105,50 @@ export function openSignList(document: Document, pane: HTMLElement): SignList {
     list.replaceChildren();
     signs = [];
     rows = [];
+    temporaryRow = null;
     selectedSign = null;
+    expandedSign = null;
+  }
+
+  function activate(sign: TrafficSign): void {
+    const wasSelected = selectedSign !== null && sameTrafficSign(selectedSign, sign);
+    selectedSign = signs.find((listed) => sameTrafficSign(listed, sign)) ?? sign;
+    expandedSign =
+      selectedSign.notes === null
+        ? null
+        : wasSelected && expandedSign !== null && sameTrafficSign(expandedSign, selectedSign)
+          ? null
+          : selectedSign;
+    temporaryRow = signs.some((listed) => sameTrafficSign(listed, selectedSign!))
+      ? null
+      : temporaryRow?.sign === selectedSign
+        ? temporaryRow
+        : buildRow(document, selectedSign, activate);
+    updateRows();
+    renderRows();
+    onRowActivate(selectedSign);
+  }
+
+  function updateRows(): void {
+    for (const row of allRows()) {
+      row.setSelected(selectedSign !== null && sameTrafficSign(row.sign, selectedSign));
+      row.setNotesExpanded(expandedSign !== null && sameTrafficSign(row.sign, expandedSign));
+    }
+  }
+
+  function rowFor(sign: TrafficSign): SignRow | undefined {
+    return (
+      rows.find((row) => sameTrafficSign(row.sign, sign)) ??
+      (temporaryRow !== null && sameTrafficSign(temporaryRow.sign, sign) ? temporaryRow : undefined)
+    );
+  }
+
+  function allRows(): SignRow[] {
+    return temporaryRow === null ? rows : [...rows, temporaryRow];
+  }
+
+  function renderRows(): void {
+    list.replaceChildren(...allRows().map((row) => row.item));
   }
 }
 
@@ -83,7 +157,11 @@ function countText(count: number): string {
   return count === 1 ? "1 sign in view" : `${count} signs in view`;
 }
 
-function buildRow(document: Document, sign: TrafficSign): SignRow {
+function buildRow(
+  document: Document,
+  sign: TrafficSign,
+  onActivate: (sign: TrafficSign) => void,
+): SignRow {
   const item = document.createElement("li");
 
   const row = document.createElement("button");
@@ -131,16 +209,7 @@ function buildRow(document: Document, sign: TrafficSign): SignRow {
     row.append(disclosureIndicator);
   }
 
-  let notesExpanded = false;
-  row.addEventListener("click", () => {
-    if (notesDisclosure === null) return;
-    notesExpanded = !notesExpanded;
-    row.setAttribute("aria-expanded", String(notesExpanded));
-    notesDisclosure.full.hidden = !notesExpanded;
-    if (disclosureIndicator !== null) {
-      disclosureIndicator.textContent = notesExpanded ? "▾" : "▸";
-    }
-  });
+  row.addEventListener("click", () => onActivate(sign));
 
   item.append(row);
   // Keep the row in place; expansion adds the full note beneath it.
@@ -151,6 +220,14 @@ function buildRow(document: Document, sign: TrafficSign): SignRow {
     setSelected(selected: boolean): void {
       row.classList.toggle(SIGN_ROW_SELECTED_CLASS, selected);
       row.setAttribute("aria-pressed", String(selected));
+    },
+    setNotesExpanded(expanded: boolean): void {
+      if (notesDisclosure === null) return;
+      row.setAttribute("aria-expanded", String(expanded));
+      notesDisclosure.full.hidden = !expanded;
+      if (disclosureIndicator !== null) {
+        disclosureIndicator.textContent = expanded ? "▾" : "▸";
+      }
     },
   };
 }

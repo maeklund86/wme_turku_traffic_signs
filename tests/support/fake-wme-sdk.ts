@@ -28,6 +28,7 @@ const SUPPORTED_EVENTS = [
 export function createFakeMapSurface(
   mapElement: HTMLElement | (() => never) = document.createElement("div"),
 ) {
+  let zoomLevel = 13;
   const addLayer = vi.fn(
     async (_args: {
       layerName: string;
@@ -45,6 +46,11 @@ export function createFakeMapSurface(
   const setLayerVisibility = vi.fn(
     async (_args: { layerName: string; visibility: boolean }): Promise<void> => undefined,
   );
+  const setMapCenter = vi.fn(
+    async (args: { lonLat: { lon: number; lat: number }; zoomLevel?: number }): Promise<void> => {
+      if (args.zoomLevel !== undefined) zoomLevel = args.zoomLevel;
+    },
+  );
   const getMapViewportElement = vi.fn(async () =>
     typeof mapElement === "function" ? mapElement() : mapElement,
   );
@@ -56,6 +62,7 @@ export function createFakeMapSurface(
       addFeatureToLayer,
       removeAllFeaturesFromLayer,
       setLayerVisibility,
+      setMapCenter,
       getMapViewportElement,
       getMapExtent,
     },
@@ -63,6 +70,8 @@ export function createFakeMapSurface(
     addFeatureToLayer,
     removeAllFeaturesFromLayer,
     setLayerVisibility,
+    setMapCenter,
+    getZoomLevel: () => zoomLevel,
     getMapViewportElement,
     getMapExtent,
   };
@@ -141,6 +150,7 @@ export function createFakeWmeSdk() {
     registerScriptTab,
     isScriptTabActive: (tabLabel: HTMLElement) => activeScriptTab === tabLabel,
     map: mapSurface.Map,
+    getZoomLevel: mapSurface.getZoomLevel,
     layerSwitcher: { addLayerCheckbox },
     events: eventBus,
     emitWmeReady: () => {

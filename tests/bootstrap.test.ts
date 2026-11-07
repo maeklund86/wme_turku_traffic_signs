@@ -358,7 +358,7 @@ describe("visual overlay wiring", () => {
     expect(features[0]!.geometry.coordinates).toEqual([22.27617187661397, 60.443853785959234]);
   });
 
-  it("selects the clicked sign row without opening its extra note", async () => {
+  it("selects and reveals the clicked sign row with its extra note", async () => {
     const { fake, tabLabel, rows, features } = await readyWithSigns([
       sign("321020431", 22.27617187661397, 60.443853785959234, {
         signName: "First sign",
@@ -367,6 +367,9 @@ describe("visual overlay wiring", () => {
     ]);
     const [row] = rows;
     const [feature] = features;
+    const listItem = row!.parentElement!;
+    const scrollIntoView = vi.fn();
+    listItem.scrollIntoView = scrollIntoView;
 
     expect(fake.events.trackLayerEvents).toHaveBeenCalledWith({ layerName: SIGN_LAYER_NAME });
     fake.emitFeatureClick({ featureId: feature!.id, layerName: SIGN_LAYER_NAME });
@@ -376,10 +379,235 @@ describe("visual overlay wiring", () => {
 
     expect(fake.isScriptTabActive(tabLabel)).toBe(true);
     expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(true);
-    expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(row!.getAttribute("aria-expanded")).toBe("true");
     expect(row!.getAttribute("aria-pressed")).toBe("true");
     expect(row!.textContent).toContain("First sign");
-    expect(fullNotesOf(row!).hidden).toBe(true);
+    expect(fullNotesOf(row!).hidden).toBe(false);
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+  });
+
+  it("centers a row selection on its original WGS84 point without overriding zoom", async () => {
+    const { fake, rows } = await readyWithSigns([
+      sign("no-notes", 22.27617187661397, 60.443853785959234),
+    ]);
+    const [row] = rows;
+    const zoomBeforeSelection = fake.getZoomLevel();
+
+    row!.click();
+
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(fake.map.setMapCenter).toHaveBeenCalledWith({
+      lonLat: { lon: 22.27617187661397, lat: 60.443853785959234 },
+    });
+    expect(fake.getZoomLevel()).toBe(zoomBeforeSelection);
+  });
+
+  it("keeps a row selected while its notes are toggled", async () => {
+    const { fake, rows } = await readyWithSigns([
+      sign("with-notes", 22.27617187661397, 60.443853785959234, {
+        notes: "Details for the selected Traffic Sign",
+      }),
+    ]);
+    const [row] = rows;
+    const notes = fullNotesOf(row!);
+
+    row!.click();
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(row!.getAttribute("aria-expanded")).toBe("true");
+    expect(notes.hidden).toBe(false);
+
+    row!.click();
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(notes.hidden).toBe(true);
+    expect(fake.map.setMapCenter).toHaveBeenCalledTimes(2);
+  });
+
+  it("selects and scrolls a marker's row even when the Traffic Sign has no notes", async () => {
+    const { fake, rows, features } = await readyWithSigns([
+      sign("without-notes", 22.27617187661397, 60.443853785959234),
+    ]);
+    const [row] = rows;
+    const [feature] = features;
+    const scrollIntoView = vi.fn();
+    row!.parentElement!.scrollIntoView = scrollIntoView;
+
+    fake.emitFeatureClick({ featureId: feature!.id, layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a row selection and closes the previous Traffic Sign's notes", async () => {
+    const { rows } = await readyWithSigns([
+      sign("first", 22.27617187661397, 60.443853785959234, { notes: "First details" }),
+      sign("second", 22.1, 60.4, { notes: "Second details" }),
+    ]);
+    const [firstRow, secondRow] = rows;
+
+    firstRow!.click();
+    secondRow!.click();
+
+    expect(firstRow!.getAttribute("aria-pressed")).toBe("false");
+    expect(firstRow!.getAttribute("aria-expanded")).toBe("false");
+    expect(fullNotesOf(firstRow!).hidden).toBe(true);
+    expect(secondRow!.getAttribute("aria-pressed")).toBe("true");
+    expect(secondRow!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("centers on a selected row using a WME LonLat object without changing zoom", async () => {
+    const { fake, rows } = await readyWithSigns([sign("center", 22.1, 60.4)]);
+
+    rows[0]!.click();
+
+    expect(fake.map.setMapCenter).toHaveBeenLastCalledWith({ lonLat: { lon: 22.1, lat: 60.4 } });
+    expect(fake.getZoomLevel()).toBe(13);
+  });
+
+  it("keeps selection and open notes through viewport refresh, then clears them when out of view", async () => {
+    const { fake, rows } = await readyWithSigns([
+      sign("moving", 22.27617187661397, 60.443853785959234, {
+        notes: "Details remain open during a map move",
+      }),
+    ]);
+    const pane = await paneOf(fake.registerScriptTab);
+    const [initialRow] = rows;
+
+    fake.emitFeatureClick({ featureId: "moving", layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+    expect(initialRow!.getAttribute("aria-expanded")).toBe("true");
+
+    fake.map.getMapExtent.mockResolvedValue([22.2, 60.4, 22.3, 60.5]);
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => {
+      const [refreshedRow] = rowsOf(pane);
+      expect(refreshedRow?.getAttribute("aria-pressed")).toBe("true");
+      expect(refreshedRow?.getAttribute("aria-expanded")).toBe("true");
+      expect(fullNotesOf(refreshedRow!).hidden).toBe(false);
+    });
+
+    fake.map.getMapExtent.mockResolvedValue([22.09, 60.35, 22.2, 60.61]);
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(0));
+    expect(listHeaderOf(pane).textContent).toBe("0 signs in view");
+
+    fake.map.getMapExtent.mockResolvedValue([22.2, 60.4, 22.3, 60.5]);
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(1));
+    const [returnedRow] = rowsOf(pane);
+    expect(returnedRow!.getAttribute("aria-pressed")).toBe("false");
+    expect(returnedRow!.getAttribute("aria-expanded")).toBe("false");
+    expect(fullNotesOf(returnedRow!).hidden).toBe(true);
+  });
+
+  it("shows a selected padded-edge Traffic Sign without changing the count, then removes it when its marker leaves view", async () => {
+    const { fake, resolveSdkInitialized, started } = bootWithSigns([
+      sign("inside", 22.5, 60.5),
+      sign("edge", 23.08, 60.5, {
+        signCode: "B1",
+        signName: "Edge Traffic Sign",
+        notes: "Details for the edge Traffic Sign",
+      }),
+    ]);
+    fake.map.getMapExtent.mockResolvedValue([22, 60, 23, 61]);
+    const viewport = document.createElement("div");
+    viewport.getBoundingClientRect = () => ({ width: 320, height: 320 }) as DOMRect;
+    fake.map.getMapViewportElement.mockResolvedValue(viewport);
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(2));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    const edgeFeature = addedFeatures(fake).find((feature) => feature.id === "edge");
+    expect(edgeFeature).toBeDefined();
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+    expect(rowsOf(pane)).toHaveLength(1);
+
+    const attachedWhenScrolled: boolean[] = [];
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      attachedWhenScrolled.push(this.parentElement === pane.querySelector("ul"));
+    });
+    const scrollDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+      writable: true,
+    });
+    try {
+      fake.emitFeatureClick({ featureId: "edge", layerName: SIGN_LAYER_NAME });
+      fake.emitMapClick();
+    } finally {
+      if (scrollDescriptor === undefined) {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      } else {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", scrollDescriptor);
+      }
+    }
+
+    await vi.waitFor(() => {
+      const rows = rowsOf(pane);
+      expect(rows).toHaveLength(2);
+      expect(rows[1]?.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent).toBe("B1");
+      expect(rows[1]?.textContent).toContain("Edge Traffic Sign");
+      expect(rows[1]?.getAttribute("aria-pressed")).toBe("true");
+      expect(rows[1]?.getAttribute("aria-expanded")).toBe("true");
+      expect(fullNotesOf(rows[1]!).hidden).toBe(false);
+    });
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts[0]).toBe(rowsOf(pane)[1]?.parentElement);
+    expect(attachedWhenScrolled).toEqual([true]);
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+
+    fake.map.getMapExtent.mockResolvedValue([22.1, 60, 23.02, 61]);
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => {
+      const edgeRow = rowsOf(pane).find(
+        (row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent === "B1",
+      );
+      expect(edgeRow?.getAttribute("aria-pressed")).toBe("true");
+      expect(edgeRow?.getAttribute("aria-expanded")).toBe("true");
+      expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+    });
+
+    fake.emitMapClick();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(1));
+    expect(rowsOf(pane)[0]?.getAttribute("aria-pressed")).toBe("false");
+
+    fake.emitFeatureClick({ featureId: "edge", layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(2));
+
+    rowsOf(pane)[0]!.click();
+    expect(rowsOf(pane)[0]?.getAttribute("aria-pressed")).toBe("true");
+    expect(rowsOf(pane)).toHaveLength(1);
+    fake.map.getMapExtent.mockResolvedValue([22.4, 60.4, 22.6, 60.6]);
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(rowsOf(pane)[0]?.getAttribute("aria-pressed")).toBe("true"));
+
+    fake.map.getMapExtent.mockResolvedValue([22.1, 60, 23.02, 61]);
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(2));
+    fake.emitFeatureClick({ featureId: "edge", layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(2));
+
+    fake.map.getMapExtent.mockResolvedValue([22.1, 60, 22.95, 61]);
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(1));
+    expect(rowsOf(pane)[0]?.getAttribute("aria-pressed")).toBe("false");
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
   });
 
   it("replaces the previous marker selection", async () => {
@@ -396,7 +624,7 @@ describe("visual overlay wiring", () => {
     fake.emitFeatureClick({ featureId: secondFeature!.id, layerName: SIGN_LAYER_NAME });
 
     expect(secondRow!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(true);
-    expect(secondRow!.getAttribute("aria-expanded")).toBe("false");
+    expect(secondRow!.getAttribute("aria-expanded")).toBe("true");
     expect(firstRow!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
     expect(firstRow!.getAttribute("aria-expanded")).toBe("false");
   });
@@ -417,6 +645,7 @@ describe("visual overlay wiring", () => {
     expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
     expect(row!.getAttribute("aria-expanded")).toBe("false");
     expect(row!.getAttribute("aria-pressed")).toBe("false");
+    expect(fullNotesOf(row!).hidden).toBe(true);
   });
 
   it("ignores feature clicks from other layers", async () => {
