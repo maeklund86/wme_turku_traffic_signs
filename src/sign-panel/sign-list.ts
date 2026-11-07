@@ -11,7 +11,7 @@ import {
   SIGN_ROW_NOTES_FULL_CLASS,
   SIGN_ROW_SELECTED_CLASS,
 } from "../constants";
-import type { TrafficSign } from "../data/traffic-sign";
+import { sameTrafficSign, type TrafficSign } from "../data/traffic-sign";
 import { categoryForCode } from "../data/sign-categories";
 import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
 
@@ -92,10 +92,10 @@ export function openSignList(
         ? buildRow(document, selectedSign, activate)
         : null;
     updateRows();
+    renderRows();
     if (selectedSign !== null) {
       rowFor(selectedSign)?.item.scrollIntoView?.();
     }
-    renderRows();
   }
 
   function markUnavailable(): void {
@@ -150,10 +150,6 @@ export function openSignList(
   function renderRows(): void {
     list.replaceChildren(...allRows().map((row) => row.item));
   }
-}
-
-function sameTrafficSign(left: TrafficSign, right: TrafficSign): boolean {
-  return left === right || (left.key !== "" && left.key === right.key);
 }
 
 /** The header is the count: the user reads how many signs the view holds. */

@@ -519,7 +519,10 @@ describe("visual overlay wiring", () => {
     expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
     expect(rowsOf(pane)).toHaveLength(1);
 
-    const scrollIntoView = vi.fn();
+    const attachedWhenScrolled: boolean[] = [];
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      attachedWhenScrolled.push(this.parentElement === pane.querySelector("ul"));
+    });
     const scrollDescriptor = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
       "scrollIntoView",
@@ -551,6 +554,7 @@ describe("visual overlay wiring", () => {
     });
     expect(scrollIntoView).toHaveBeenCalledOnce();
     expect(scrollIntoView.mock.contexts[0]).toBe(rowsOf(pane)[1]?.parentElement);
+    expect(attachedWhenScrolled).toEqual([true]);
     expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
 
     fake.map.getMapExtent.mockResolvedValue([22.1, 60, 23.02, 61]);

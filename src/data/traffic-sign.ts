@@ -19,6 +19,11 @@ export interface TrafficSign {
   readonly coordinates: readonly [longitude: number, latitude: number];
 }
 
+/** Compares Traffic Signs by object identity or by their non-empty registry key. */
+export function sameTrafficSign(left: TrafficSign, right: TrafficSign): boolean {
+  return left === right || (left.key !== "" && left.key === right.key);
+}
+
 /**
  * Parses one GeoJSON feature from the Trimble OGC API. Returns null for rows
  * that cannot be presented as a Traffic Sign — registry rows carrying neither

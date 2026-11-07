@@ -7,7 +7,7 @@ import type {
 
 import type { BoundingBox } from "../data/bounding-box";
 import { buildSpatialIndex, type SpatialIndex } from "../data/spatial-index";
-import type { TrafficSign } from "../data/traffic-sign";
+import { sameTrafficSign, type TrafficSign } from "../data/traffic-sign";
 import { filterSignsBySelection, type SignFilterKey } from "../data/sign-categories";
 import { SIGN_LAYER_NAME } from "../constants";
 import {
@@ -267,10 +267,6 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
       deps.onSelectionChange?.(null);
     }, 0);
   }
-}
-
-function sameTrafficSign(left: TrafficSign, right: TrafficSign): boolean {
-  return left === right || (left.key !== "" && left.key === right.key);
 }
 
 function isBoundingBox(value: readonly number[]): value is BoundingBox {
