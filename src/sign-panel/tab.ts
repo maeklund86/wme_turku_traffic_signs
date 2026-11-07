@@ -40,7 +40,7 @@ export interface SignPanelTabDeps {
     };
     Map: {
       getMapExtent(): Promise<number[]>;
-      setMapCenter(args: { lonLat: [number, number] }): Promise<void>;
+      setMapCenter(args: { lonLat: { lon: number; lat: number } }): Promise<void>;
     };
   };
   /** The WME page document (userscript sandboxes run in an isolated world — pass the page's). */
@@ -170,9 +170,11 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   function centerMapOnSign(sign: TrafficSign): void {
     const [longitude, latitude] = sign.coordinates;
     deps.layer.setSelectedSign?.(sign);
-    void deps.sdk.Map.setMapCenter({ lonLat: [longitude, latitude] }).catch((error: unknown) => {
-      console.error("[turku-signs] Failed to center the map on the selected Traffic Sign", error);
-    });
+    void deps.sdk.Map.setMapCenter({ lonLat: { lon: longitude, lat: latitude } }).catch(
+      (error: unknown) => {
+        console.error("[turku-signs] Failed to center the map on the selected Traffic Sign", error);
+      },
+    );
   }
 
   /** The current pane, but only while WME has left it attached. */

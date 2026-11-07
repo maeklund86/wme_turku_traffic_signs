@@ -47,7 +47,7 @@ export function createFakeMapSurface(
     async (_args: { layerName: string; visibility: boolean }): Promise<void> => undefined,
   );
   const setMapCenter = vi.fn(
-    async (args: { lonLat: [number, number]; zoomLevel?: number }): Promise<void> => {
+    async (args: { lonLat: { lon: number; lat: number }; zoomLevel?: number }): Promise<void> => {
       if (args.zoomLevel !== undefined) zoomLevel = args.zoomLevel;
     },
   );

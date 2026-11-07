@@ -397,7 +397,7 @@ describe("visual overlay wiring", () => {
 
     expect(row!.getAttribute("aria-pressed")).toBe("true");
     expect(fake.map.setMapCenter).toHaveBeenCalledWith({
-      lonLat: [22.27617187661397, 60.443853785959234],
+      lonLat: { lon: 22.27617187661397, lat: 60.443853785959234 },
     });
     expect(fake.getZoomLevel()).toBe(zoomBeforeSelection);
   });
@@ -441,7 +441,7 @@ describe("visual overlay wiring", () => {
   });
 
   it("replaces a row selection and closes the previous Traffic Sign's notes", async () => {
-    const { fake, rows } = await readyWithSigns([
+    const { rows } = await readyWithSigns([
       sign("first", 22.27617187661397, 60.443853785959234, { notes: "First details" }),
       sign("second", 22.1, 60.4, { notes: "Second details" }),
     ]);
@@ -455,7 +455,15 @@ describe("visual overlay wiring", () => {
     expect(fullNotesOf(firstRow!).hidden).toBe(true);
     expect(secondRow!.getAttribute("aria-pressed")).toBe("true");
     expect(secondRow!.getAttribute("aria-expanded")).toBe("true");
-    expect(fake.map.setMapCenter).toHaveBeenLastCalledWith({ lonLat: [22.1, 60.4] });
+  });
+
+  it("centers on a selected row using a WME LonLat object without changing zoom", async () => {
+    const { fake, rows } = await readyWithSigns([sign("center", 22.1, 60.4)]);
+
+    rows[0]!.click();
+
+    expect(fake.map.setMapCenter).toHaveBeenLastCalledWith({ lonLat: { lon: 22.1, lat: 60.4 } });
+    expect(fake.getZoomLevel()).toBe(13);
   });
 
   it("keeps selection and open notes through viewport refresh, then clears them when out of view", async () => {
