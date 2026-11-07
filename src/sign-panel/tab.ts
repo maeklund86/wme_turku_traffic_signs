@@ -38,7 +38,10 @@ export interface SignPanelTabDeps {
       /** Re-checks coverage when the user finishes moving the map. */
       on(args: { eventName: "wme-map-move-end"; eventHandler: () => void }): unknown;
     };
-    Map: { getMapExtent(): Promise<number[]> };
+    Map: {
+      getMapExtent(): Promise<number[]>;
+      setMapCenter(args: { lonLat: [number, number] }): Promise<void>;
+    };
   };
   /** The WME page document (userscript sandboxes run in an isolated world — pass the page's). */
   document: Document;
@@ -137,6 +140,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
         registeredTab.tabPane,
         persistVisibility,
         persistCategoryFilter,
+        centerMapOnSign,
       );
     }
     if (!subscribedToMapMoves) {
@@ -157,6 +161,13 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       await applySignList(panelControls);
     }).catch((error: unknown) => {
       console.error("[turku-signs] Failed to update the Sign Panel after map move", error);
+    });
+  }
+
+  function centerMapOnSign(sign: TrafficSign): void {
+    const [longitude, latitude] = sign.coordinates;
+    void deps.sdk.Map.setMapCenter({ lonLat: [longitude, latitude] }).catch((error: unknown) => {
+      console.error("[turku-signs] Failed to center the map on the selected Traffic Sign", error);
     });
   }
 
@@ -306,6 +317,7 @@ function buildControls(
   pane: HTMLElement,
   onVisibilityChange: (visible: boolean) => Promise<void>,
   onCategoryFilterChange: (categoryFilter: readonly SignFilterKey[] | null) => void,
+  onRowActivate: (sign: TrafficSign) => void,
 ): SignPanelControls {
   const content = document.createElement("div");
   content.className = SIGN_PANEL_CONTENT_CLASS;
@@ -331,7 +343,7 @@ function buildControls(
 
   // Below the visibility block, above the permanent footer (which refresh()
   // appends last): the list is the tab's main content, not a control of its own.
-  const list = openSignList(document, content);
+  const list = openSignList(document, content, onRowActivate);
   pane.append(content);
 
   toggle.addEventListener("change", () => {

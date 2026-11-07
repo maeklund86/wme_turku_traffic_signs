@@ -34,10 +34,15 @@ interface SignRow {
   sign: TrafficSign;
   item: HTMLElement;
   setSelected(selected: boolean): void;
+  setNotesExpanded(expanded: boolean): void;
 }
 
 /** Creates the list's header and rows inside the tab pane. */
-export function openSignList(document: Document, pane: HTMLElement): SignList {
+export function openSignList(
+  document: Document,
+  pane: HTMLElement,
+  onRowActivate: (sign: TrafficSign) => void,
+): SignList {
   const header = document.createElement("div");
   header.className = SIGN_LIST_HEADER_CLASS;
 
@@ -48,23 +53,31 @@ export function openSignList(document: Document, pane: HTMLElement): SignList {
   let signs: readonly TrafficSign[] = [];
   let rows: SignRow[] = [];
   let selectedSign: TrafficSign | null = null;
+  let expandedSign: TrafficSign | null = null;
   return { render, select, markUnavailable };
 
   function render(nextSigns: readonly TrafficSign[]): void {
     // Whole-list replacement, not patching: the viewport decides membership,
     // so every move recalculates membership. Rows remain in fetch order, which
     // keeps the list stable across moves.
-    if (selectedSign !== null && !nextSigns.includes(selectedSign)) selectedSign = null;
+    if (selectedSign !== null && !nextSigns.includes(selectedSign)) {
+      selectedSign = null;
+      expandedSign = null;
+    }
     signs = nextSigns;
     header.textContent = countText(nextSigns.length);
-    rows = nextSigns.map((sign) => buildRow(document, sign));
-    for (const row of rows) row.setSelected(row.sign === selectedSign);
+    rows = nextSigns.map((sign) => buildRow(document, sign, activate));
+    updateRows();
     list.replaceChildren(...rows.map((row) => row.item));
   }
 
   function select(sign: TrafficSign | null): void {
     selectedSign = sign !== null && signs.includes(sign) ? sign : null;
-    for (const row of rows) row.setSelected(row.sign === selectedSign);
+    expandedSign = selectedSign?.notes === null || selectedSign === null ? null : selectedSign;
+    updateRows();
+    if (selectedSign !== null) {
+      rows.find((row) => row.sign === selectedSign)?.item.scrollIntoView?.();
+    }
   }
 
   function markUnavailable(): void {
@@ -75,6 +88,22 @@ export function openSignList(document: Document, pane: HTMLElement): SignList {
     signs = [];
     rows = [];
     selectedSign = null;
+    expandedSign = null;
+  }
+
+  function activate(sign: TrafficSign): void {
+    const wasSelected = selectedSign === sign;
+    selectedSign = sign;
+    expandedSign = sign.notes === null ? null : wasSelected && expandedSign === sign ? null : sign;
+    updateRows();
+    onRowActivate(sign);
+  }
+
+  function updateRows(): void {
+    for (const row of rows) {
+      row.setSelected(row.sign === selectedSign);
+      row.setNotesExpanded(row.sign === expandedSign);
+    }
   }
 }
 
@@ -83,7 +112,11 @@ function countText(count: number): string {
   return count === 1 ? "1 sign in view" : `${count} signs in view`;
 }
 
-function buildRow(document: Document, sign: TrafficSign): SignRow {
+function buildRow(
+  document: Document,
+  sign: TrafficSign,
+  onActivate: (sign: TrafficSign) => void,
+): SignRow {
   const item = document.createElement("li");
 
   const row = document.createElement("button");
@@ -131,16 +164,7 @@ function buildRow(document: Document, sign: TrafficSign): SignRow {
     row.append(disclosureIndicator);
   }
 
-  let notesExpanded = false;
-  row.addEventListener("click", () => {
-    if (notesDisclosure === null) return;
-    notesExpanded = !notesExpanded;
-    row.setAttribute("aria-expanded", String(notesExpanded));
-    notesDisclosure.full.hidden = !notesExpanded;
-    if (disclosureIndicator !== null) {
-      disclosureIndicator.textContent = notesExpanded ? "▾" : "▸";
-    }
-  });
+  row.addEventListener("click", () => onActivate(sign));
 
   item.append(row);
   // Keep the row in place; expansion adds the full note beneath it.
@@ -151,6 +175,14 @@ function buildRow(document: Document, sign: TrafficSign): SignRow {
     setSelected(selected: boolean): void {
       row.classList.toggle(SIGN_ROW_SELECTED_CLASS, selected);
       row.setAttribute("aria-pressed", String(selected));
+    },
+    setNotesExpanded(expanded: boolean): void {
+      if (notesDisclosure === null) return;
+      row.setAttribute("aria-expanded", String(expanded));
+      notesDisclosure.full.hidden = !expanded;
+      if (disclosureIndicator !== null) {
+        disclosureIndicator.textContent = expanded ? "▾" : "▸";
+      }
     },
   };
 }

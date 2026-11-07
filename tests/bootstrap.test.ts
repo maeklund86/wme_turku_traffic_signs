@@ -358,7 +358,7 @@ describe("visual overlay wiring", () => {
     expect(features[0]!.geometry.coordinates).toEqual([22.27617187661397, 60.443853785959234]);
   });
 
-  it("selects the clicked sign row without opening its extra note", async () => {
+  it("selects and reveals the clicked sign row with its extra note", async () => {
     const { fake, tabLabel, rows, features } = await readyWithSigns([
       sign("321020431", 22.27617187661397, 60.443853785959234, {
         signName: "First sign",
@@ -367,6 +367,9 @@ describe("visual overlay wiring", () => {
     ]);
     const [row] = rows;
     const [feature] = features;
+    const listItem = row!.parentElement!;
+    const scrollIntoView = vi.fn();
+    listItem.scrollIntoView = scrollIntoView;
 
     expect(fake.events.trackLayerEvents).toHaveBeenCalledWith({ layerName: SIGN_LAYER_NAME });
     fake.emitFeatureClick({ featureId: feature!.id, layerName: SIGN_LAYER_NAME });
@@ -376,10 +379,119 @@ describe("visual overlay wiring", () => {
 
     expect(fake.isScriptTabActive(tabLabel)).toBe(true);
     expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(true);
-    expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(row!.getAttribute("aria-expanded")).toBe("true");
     expect(row!.getAttribute("aria-pressed")).toBe("true");
     expect(row!.textContent).toContain("First sign");
-    expect(fullNotesOf(row!).hidden).toBe(true);
+    expect(fullNotesOf(row!).hidden).toBe(false);
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+  });
+
+  it("centers a row selection on its original WGS84 point without overriding zoom", async () => {
+    const { fake, rows } = await readyWithSigns([
+      sign("no-notes", 22.27617187661397, 60.443853785959234),
+    ]);
+    const [row] = rows;
+    const zoomBeforeSelection = fake.getZoomLevel();
+
+    row!.click();
+
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(fake.map.setMapCenter).toHaveBeenCalledWith({
+      lonLat: [22.27617187661397, 60.443853785959234],
+    });
+    expect(fake.getZoomLevel()).toBe(zoomBeforeSelection);
+  });
+
+  it("keeps a row selected while its notes are toggled", async () => {
+    const { fake, rows } = await readyWithSigns([
+      sign("with-notes", 22.27617187661397, 60.443853785959234, {
+        notes: "Details for the selected Traffic Sign",
+      }),
+    ]);
+    const [row] = rows;
+    const notes = fullNotesOf(row!);
+
+    row!.click();
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(row!.getAttribute("aria-expanded")).toBe("true");
+    expect(notes.hidden).toBe(false);
+
+    row!.click();
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(notes.hidden).toBe(true);
+    expect(fake.map.setMapCenter).toHaveBeenCalledTimes(2);
+  });
+
+  it("selects and scrolls a marker's row even when the Traffic Sign has no notes", async () => {
+    const { fake, rows, features } = await readyWithSigns([
+      sign("without-notes", 22.27617187661397, 60.443853785959234),
+    ]);
+    const [row] = rows;
+    const [feature] = features;
+    const scrollIntoView = vi.fn();
+    row!.parentElement!.scrollIntoView = scrollIntoView;
+
+    fake.emitFeatureClick({ featureId: feature!.id, layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+
+    expect(row!.getAttribute("aria-pressed")).toBe("true");
+    expect(row!.getAttribute("aria-expanded")).toBe("false");
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a row selection and closes the previous Traffic Sign's notes", async () => {
+    const { fake, rows } = await readyWithSigns([
+      sign("first", 22.27617187661397, 60.443853785959234, { notes: "First details" }),
+      sign("second", 22.1, 60.4, { notes: "Second details" }),
+    ]);
+    const [firstRow, secondRow] = rows;
+
+    firstRow!.click();
+    secondRow!.click();
+
+    expect(firstRow!.getAttribute("aria-pressed")).toBe("false");
+    expect(firstRow!.getAttribute("aria-expanded")).toBe("false");
+    expect(fullNotesOf(firstRow!).hidden).toBe(true);
+    expect(secondRow!.getAttribute("aria-pressed")).toBe("true");
+    expect(secondRow!.getAttribute("aria-expanded")).toBe("true");
+    expect(fake.map.setMapCenter).toHaveBeenLastCalledWith({ lonLat: [22.1, 60.4] });
+  });
+
+  it("keeps selection and open notes through viewport refresh, then clears them when out of view", async () => {
+    const { fake, rows } = await readyWithSigns([
+      sign("moving", 22.27617187661397, 60.443853785959234, {
+        notes: "Details remain open during a map move",
+      }),
+    ]);
+    const pane = await paneOf(fake.registerScriptTab);
+    const [initialRow] = rows;
+
+    fake.emitFeatureClick({ featureId: "moving", layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+    expect(initialRow!.getAttribute("aria-expanded")).toBe("true");
+
+    fake.map.getMapExtent.mockResolvedValue([22.2, 60.4, 22.3, 60.5]);
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => {
+      const [refreshedRow] = rowsOf(pane);
+      expect(refreshedRow?.getAttribute("aria-pressed")).toBe("true");
+      expect(refreshedRow?.getAttribute("aria-expanded")).toBe("true");
+      expect(fullNotesOf(refreshedRow!).hidden).toBe(false);
+    });
+
+    fake.map.getMapExtent.mockResolvedValue([22.09, 60.35, 22.2, 60.61]);
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(0));
+    expect(listHeaderOf(pane).textContent).toBe("0 signs in view");
+
+    fake.map.getMapExtent.mockResolvedValue([22.2, 60.4, 22.3, 60.5]);
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(1));
+    const [returnedRow] = rowsOf(pane);
+    expect(returnedRow!.getAttribute("aria-pressed")).toBe("false");
+    expect(returnedRow!.getAttribute("aria-expanded")).toBe("false");
+    expect(fullNotesOf(returnedRow!).hidden).toBe(true);
   });
 
   it("replaces the previous marker selection", async () => {
@@ -396,7 +508,7 @@ describe("visual overlay wiring", () => {
     fake.emitFeatureClick({ featureId: secondFeature!.id, layerName: SIGN_LAYER_NAME });
 
     expect(secondRow!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(true);
-    expect(secondRow!.getAttribute("aria-expanded")).toBe("false");
+    expect(secondRow!.getAttribute("aria-expanded")).toBe("true");
     expect(firstRow!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
     expect(firstRow!.getAttribute("aria-expanded")).toBe("false");
   });
@@ -417,6 +529,7 @@ describe("visual overlay wiring", () => {
     expect(row!.classList.contains(SIGN_ROW_SELECTED_CLASS)).toBe(false);
     expect(row!.getAttribute("aria-expanded")).toBe("false");
     expect(row!.getAttribute("aria-pressed")).toBe("false");
+    expect(fullNotesOf(row!).hidden).toBe(true);
   });
 
   it("ignores feature clicks from other layers", async () => {
