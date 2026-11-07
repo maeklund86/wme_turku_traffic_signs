@@ -625,7 +625,7 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     expect(indicator.textContent).toBe("▸");
   });
 
-  it("selecting a sign from the map does not open its extra note", async () => {
+  it("selecting a sign from the map opens its extra note", async () => {
     const target = sign("nearby", 22.25, 60.45, { notes: "Additional sign details" });
     const { registerScriptTab, tab } = await openTab({ signs: [target] });
 
@@ -636,8 +636,8 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     tab.selectSign(target);
 
     expect(row!.getAttribute("aria-pressed")).toBe("true");
-    expect(row!.getAttribute("aria-expanded")).toBe("false");
-    expect(fullNotes.hidden).toBe(true);
+    expect(row!.getAttribute("aria-expanded")).toBe("true");
+    expect(fullNotes.hidden).toBe(false);
   });
 
   it("filters by sign-code category and restores choice after viewport moves and ready", async () => {
