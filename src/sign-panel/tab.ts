@@ -50,6 +50,8 @@ export interface SignPanelTabDeps {
   layer: {
     setVisible(visible: boolean): Promise<void>;
     setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): Promise<void>;
+    /** Keeps padded marker lifetime aligned with Sign Panel row selection. */
+    setSelectedSign?(sign: TrafficSign | null): void;
   };
   /**
    * The in-memory spatial index the viewport list filters against (spec §4.5).
@@ -123,6 +125,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
       const panelControls = attachedControls();
       if (panelControls === null) return;
       if (sign !== null) panelControls.tabLabel.click();
+      deps.layer.setSelectedSign?.(sign);
       panelControls.list.select(sign);
     },
   };
@@ -166,6 +169,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
 
   function centerMapOnSign(sign: TrafficSign): void {
     const [longitude, latitude] = sign.coordinates;
+    deps.layer.setSelectedSign?.(sign);
     void deps.sdk.Map.setMapCenter({ lonLat: [longitude, latitude] }).catch((error: unknown) => {
       console.error("[turku-signs] Failed to center the map on the selected Traffic Sign", error);
     });
@@ -232,6 +236,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
     // the current viewport.
     if (viewport === null) {
       panelControls.list.markUnavailable();
+      deps.layer.setSelectedSign?.(null);
       return;
     }
     panelControls.list.render(

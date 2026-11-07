@@ -52,6 +52,7 @@ export function openSignList(
   pane.append(header, list);
   let signs: readonly TrafficSign[] = [];
   let rows: SignRow[] = [];
+  let temporaryRow: SignRow | null = null;
   let selectedSign: TrafficSign | null = null;
   let expandedSign: TrafficSign | null = null;
   return { render, select, markUnavailable };
@@ -60,24 +61,41 @@ export function openSignList(
     // Whole-list replacement, not patching: the viewport decides membership,
     // so every move recalculates membership. Rows remain in fetch order, which
     // keeps the list stable across moves.
-    if (selectedSign !== null && !nextSigns.includes(selectedSign)) {
-      selectedSign = null;
-      expandedSign = null;
+    if (selectedSign !== null) {
+      const listedSign = nextSigns.find((sign) => sameTrafficSign(sign, selectedSign!));
+      if (listedSign !== undefined) {
+        if (selectedSign !== listedSign && expandedSign === selectedSign) {
+          expandedSign = listedSign;
+        }
+        selectedSign = listedSign;
+        temporaryRow = null;
+      } else if (temporaryRow?.sign !== selectedSign) {
+        // The Visual Overlay can render a marker just beyond strict list
+        // bounds. Keep that selected Traffic Sign as a temporary row; the
+        // marker layer clears it when it is no longer in its padded query.
+        temporaryRow = buildRow(document, selectedSign, activate);
+      }
     }
     signs = nextSigns;
     header.textContent = countText(nextSigns.length);
     rows = nextSigns.map((sign) => buildRow(document, sign, activate));
     updateRows();
-    list.replaceChildren(...rows.map((row) => row.item));
+    renderRows();
   }
 
   function select(sign: TrafficSign | null): void {
-    selectedSign = sign !== null && signs.includes(sign) ? sign : null;
+    selectedSign =
+      sign === null ? null : (signs.find((listed) => sameTrafficSign(listed, sign)) ?? sign);
     expandedSign = selectedSign?.notes === null || selectedSign === null ? null : selectedSign;
+    temporaryRow =
+      selectedSign !== null && !signs.some((listed) => sameTrafficSign(listed, selectedSign!))
+        ? buildRow(document, selectedSign, activate)
+        : null;
     updateRows();
     if (selectedSign !== null) {
-      rows.find((row) => row.sign === selectedSign)?.item.scrollIntoView?.();
+      rowFor(selectedSign)?.item.scrollIntoView?.();
     }
+    renderRows();
   }
 
   function markUnavailable(): void {
@@ -87,24 +105,55 @@ export function openSignList(
     list.replaceChildren();
     signs = [];
     rows = [];
+    temporaryRow = null;
     selectedSign = null;
     expandedSign = null;
   }
 
   function activate(sign: TrafficSign): void {
-    const wasSelected = selectedSign === sign;
-    selectedSign = sign;
-    expandedSign = sign.notes === null ? null : wasSelected && expandedSign === sign ? null : sign;
+    const wasSelected = selectedSign !== null && sameTrafficSign(selectedSign, sign);
+    selectedSign = signs.find((listed) => sameTrafficSign(listed, sign)) ?? sign;
+    expandedSign =
+      selectedSign.notes === null
+        ? null
+        : wasSelected && expandedSign !== null && sameTrafficSign(expandedSign, selectedSign)
+          ? null
+          : selectedSign;
+    temporaryRow = signs.some((listed) => sameTrafficSign(listed, selectedSign!))
+      ? null
+      : temporaryRow?.sign === selectedSign
+        ? temporaryRow
+        : buildRow(document, selectedSign, activate);
     updateRows();
-    onRowActivate(sign);
+    renderRows();
+    onRowActivate(selectedSign);
   }
 
   function updateRows(): void {
-    for (const row of rows) {
-      row.setSelected(row.sign === selectedSign);
-      row.setNotesExpanded(row.sign === expandedSign);
+    for (const row of allRows()) {
+      row.setSelected(selectedSign !== null && sameTrafficSign(row.sign, selectedSign));
+      row.setNotesExpanded(expandedSign !== null && sameTrafficSign(row.sign, expandedSign));
     }
   }
+
+  function rowFor(sign: TrafficSign): SignRow | undefined {
+    return (
+      rows.find((row) => sameTrafficSign(row.sign, sign)) ??
+      (temporaryRow !== null && sameTrafficSign(temporaryRow.sign, sign) ? temporaryRow : undefined)
+    );
+  }
+
+  function allRows(): SignRow[] {
+    return temporaryRow === null ? rows : [...rows, temporaryRow];
+  }
+
+  function renderRows(): void {
+    list.replaceChildren(...allRows().map((row) => row.item));
+  }
+}
+
+function sameTrafficSign(left: TrafficSign, right: TrafficSign): boolean {
+  return left === right || (left.key !== "" && left.key === right.key);
 }
 
 /** The header is the count: the user reads how many signs the view holds. */

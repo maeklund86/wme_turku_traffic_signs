@@ -494,6 +494,110 @@ describe("visual overlay wiring", () => {
     expect(fullNotesOf(returnedRow!).hidden).toBe(true);
   });
 
+  it("shows a selected padded-edge Traffic Sign without changing the count, then removes it when its marker leaves view", async () => {
+    const { fake, resolveSdkInitialized, started } = bootWithSigns([
+      sign("inside", 22.5, 60.5),
+      sign("edge", 23.08, 60.5, {
+        signCode: "B1",
+        signName: "Edge Traffic Sign",
+        notes: "Details for the edge Traffic Sign",
+      }),
+    ]);
+    fake.map.getMapExtent.mockResolvedValue([22, 60, 23, 61]);
+    const viewport = document.createElement("div");
+    viewport.getBoundingClientRect = () => ({ width: 320, height: 320 }) as DOMRect;
+    fake.map.getMapViewportElement.mockResolvedValue(viewport);
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(2));
+
+    const pane = await paneOf(fake.registerScriptTab);
+    const edgeFeature = addedFeatures(fake).find((feature) => feature.id === "edge");
+    expect(edgeFeature).toBeDefined();
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+    expect(rowsOf(pane)).toHaveLength(1);
+
+    const scrollIntoView = vi.fn();
+    const scrollDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+      writable: true,
+    });
+    try {
+      fake.emitFeatureClick({ featureId: "edge", layerName: SIGN_LAYER_NAME });
+      fake.emitMapClick();
+    } finally {
+      if (scrollDescriptor === undefined) {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      } else {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", scrollDescriptor);
+      }
+    }
+
+    await vi.waitFor(() => {
+      const rows = rowsOf(pane);
+      expect(rows).toHaveLength(2);
+      expect(rows[1]?.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent).toBe("B1");
+      expect(rows[1]?.textContent).toContain("Edge Traffic Sign");
+      expect(rows[1]?.getAttribute("aria-pressed")).toBe("true");
+      expect(rows[1]?.getAttribute("aria-expanded")).toBe("true");
+      expect(fullNotesOf(rows[1]!).hidden).toBe(false);
+    });
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts[0]).toBe(rowsOf(pane)[1]?.parentElement);
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+
+    fake.map.getMapExtent.mockResolvedValue([22.1, 60, 23.02, 61]);
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => {
+      const edgeRow = rowsOf(pane).find(
+        (row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent === "B1",
+      );
+      expect(edgeRow?.getAttribute("aria-pressed")).toBe("true");
+      expect(edgeRow?.getAttribute("aria-expanded")).toBe("true");
+      expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+    });
+
+    fake.emitMapClick();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(1));
+    expect(rowsOf(pane)[0]?.getAttribute("aria-pressed")).toBe("false");
+
+    fake.emitFeatureClick({ featureId: "edge", layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(2));
+
+    rowsOf(pane)[0]!.click();
+    expect(rowsOf(pane)[0]?.getAttribute("aria-pressed")).toBe("true");
+    expect(rowsOf(pane)).toHaveLength(1);
+    fake.map.getMapExtent.mockResolvedValue([22.4, 60.4, 22.6, 60.6]);
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(rowsOf(pane)[0]?.getAttribute("aria-pressed")).toBe("true"));
+
+    fake.map.getMapExtent.mockResolvedValue([22.1, 60, 23.02, 61]);
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(2));
+    fake.emitFeatureClick({ featureId: "edge", layerName: SIGN_LAYER_NAME });
+    fake.emitMapClick();
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(2));
+
+    fake.map.getMapExtent.mockResolvedValue([22.1, 60, 22.95, 61]);
+    fake.map.addFeatureToLayer.mockClear();
+    fake.emitMapMoveEnd();
+    await vi.waitFor(() => expect(fake.map.addFeatureToLayer).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(rowsOf(pane)).toHaveLength(1));
+    expect(rowsOf(pane)[0]?.getAttribute("aria-pressed")).toBe("false");
+    expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+  });
+
   it("replaces the previous marker selection", async () => {
     const { fake, rows, features } = await readyWithSigns([
       sign("321020431", 22.27617187661397, 60.443853785959234, { notes: "First sign details" }),
