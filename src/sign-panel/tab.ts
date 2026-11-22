@@ -12,13 +12,14 @@ import {
 import type { BoundingBox } from "../data/bounding-box";
 import type { TrafficSign } from "../data/traffic-sign";
 import { filterSignsBySelection, type SignFilterKey } from "../data/sign-categories";
-import type { SpatialIndex } from "../data/spatial-index";
+import { buildSpatialIndex, type SpatialIndex } from "../data/spatial-index";
 import { overlapsTurkuCoverage } from "../data/turku-coverage";
 import {
   DEFAULT_SIGN_PANEL_SETTINGS,
   type SettingsRepository,
   type SignPanelSettings,
 } from "../settings/settings-repository";
+import type { SignSelection } from "../sign-selection";
 import { openSignCategoryFilter, type SignCategoryFilter } from "./category-filter";
 import { openSignList, type SignList } from "./sign-list";
 import { ensureSignPanelStyles } from "./styles";
@@ -50,15 +51,9 @@ export interface SignPanelTabDeps {
   layer: {
     setVisible(visible: boolean): Promise<void>;
     setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): Promise<void>;
-    /** Keeps padded marker lifetime aligned with Sign Panel row selection. */
-    setSelectedSign?(sign: TrafficSign | null): void;
   };
-  /**
-   * The in-memory spatial index the viewport list filters against (spec §4.5).
-   * Read live rather than captured: the dataset resolves after the panel is
-   * opened, and every refresh and map move re-reads whatever is active then.
-   */
-  spatialIndex: { current(): SpatialIndex };
+  /** The selected Traffic Sign shared with the Visual Overlay. */
+  selection: SignSelection;
 }
 
 export interface SignPanelTab {
@@ -71,15 +66,11 @@ export interface SignPanelTab {
    */
   refresh(): Promise<void>;
   /**
-   * Re-filters the viewport-driven sign list against the in-memory spatial
-   * index and re-renders it (spec §4.5, AC-20). The tab already does this on
-   * every wme-ready and map move; bootstrap calls it after a dataset swap
-   * resolves later still — an ingest finishing after the ready left the list
-   * reading the previous index.
+   * Applies the active dataset's spatial index to the viewport-driven list
+   * (spec §4.5, AC-20). The dataset source calls this whenever its index
+   * swaps, including the background revalidation that resolves after a ready.
    */
-  refreshSignList(): Promise<void>;
-  /** Opens the script tab and selects a sign row, or clears the inline detail. */
-  selectSign(sign: TrafficSign | null): void;
+  applySignIndex(index: SpatialIndex): Promise<void>;
 }
 
 /** The tab's own controls, created once per registered pane. */
@@ -99,41 +90,44 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   let invalidViewportWarned = false;
   let currentSettings: SignPanelSettings = DEFAULT_SIGN_PANEL_SETTINGS;
   let settingsWriteQueue: Promise<void> = Promise.resolve();
+  let activeIndex: SpatialIndex = buildSpatialIndex([]);
 
-  return {
-    async refresh(): Promise<void> {
-      // Spec order (§4.1): register the sidebar tab on wme-ready, then re-apply
-      // persisted state. If WME re-rendered the pane, registerScriptTab throws
-      // InvalidStateError for this scriptId — bootstrap surfaces it.
-      const tabControls = await ensureControls();
-      ensureAttributionFooter(deps.document, tabControls.pane);
+  deps.selection.subscribe((change) => {
+    // A marker click is the one selection change that pulls the user into the
+    // script's tab. Row clicks happen there already; dataset reconciliation and
+    // viewport clears must not move the sidebar.
+    if (change.source !== "marker" || change.sign === null) return;
+    attachedControls()?.tabLabel.click();
+  });
 
-      currentSettings = await deps.settingsRepository.load();
-      await applyFlag(tabControls, currentSettings.showSigns);
-      await applyCategoryFilter(tabControls, currentSettings.categoryFilter);
-      await applyCoverage(tabControls);
-      await applySignList(tabControls);
-    },
+  return { refresh, applySignIndex };
 
-    refreshSignList(): Promise<void> {
-      // The list belongs to the pane the last ready registered; one WME has
-      // replaced is rebuilt (and re-populated) by the next ready.
-      return withAttachedControls(applySignList);
-    },
+  async function refresh(): Promise<void> {
+    // Spec order (§4.1): register the sidebar tab on wme-ready, then re-apply
+    // persisted state. If WME re-rendered the pane, registerScriptTab throws
+    // InvalidStateError for this scriptId — bootstrap surfaces it.
+    const tabControls = await ensureControls();
+    ensureAttributionFooter(deps.document, tabControls.pane);
 
-    selectSign(sign: TrafficSign | null): void {
-      const panelControls = attachedControls();
-      if (panelControls === null) return;
-      if (sign !== null) panelControls.tabLabel.click();
-      deps.layer.setSelectedSign?.(sign);
-      panelControls.list.select(sign);
-    },
-  };
+    currentSettings = await deps.settingsRepository.load();
+    await applyFlag(tabControls, currentSettings.showSigns);
+    await applyCategoryFilter(tabControls, currentSettings.categoryFilter);
+    await applyCoverage(tabControls);
+    await applySignList(tabControls);
+  }
+
+  async function applySignIndex(index: SpatialIndex): Promise<void> {
+    activeIndex = index;
+    await withAttachedControls(applySignList);
+  }
 
   /** Registers the tab on the first ready, and again whenever WME replaces its pane. */
   async function ensureControls(): Promise<SignPanelControls> {
     const paneDetached = controls !== null && !deps.document.contains(controls.pane);
     if (controls === null || paneDetached) {
+      // The replaced pane's list must stop following the shared selection;
+      // otherwise it keeps rendering into a document nobody is looking at.
+      if (controls !== null) controls.list.close();
       ensureSignPanelStyles(deps.document);
       const registeredTab = await deps.sdk.Sidebar.registerScriptTab();
       registeredTab.tabLabel.textContent = SIGN_PANEL_TAB_LABEL;
@@ -141,6 +135,7 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
         deps.document,
         registeredTab.tabLabel,
         registeredTab.tabPane,
+        deps.selection,
         persistVisibility,
         persistCategoryFilter,
         centerMapOnSign,
@@ -169,7 +164,6 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
 
   function centerMapOnSign(sign: TrafficSign): void {
     const [longitude, latitude] = sign.coordinates;
-    deps.layer.setSelectedSign?.(sign);
     void deps.sdk.Map.setMapCenter({ lonLat: { lon: longitude, lat: latitude } }).catch(
       (error: unknown) => {
         console.error("[turku-signs] Failed to center the map on the selected Traffic Sign", error);
@@ -227,25 +221,22 @@ export async function openSignPanelTab(deps: SignPanelTabDeps): Promise<SignPane
   /**
    * The viewport-driven list: exactly the signs inside the current viewport,
    * counted in the header (spec §4.5, AC-20). The query runs against the
-   * in-memory spatial index, so a re-filter costs no request and is never
-   * debounced — the viewport is the only spatial input. The same code-based
-   * tree selection filters the list and the Visual Overlay.
+   * active in-memory spatial index, so a re-filter costs no request and is
+   * never debounced — the viewport is the only spatial input. The same
+   * code-based tree selection filters the list and the Visual Overlay.
    */
   async function applySignList(panelControls: SignPanelControls): Promise<void> {
     const viewport = await viewportOrNull();
     // An unusable viewport was already warned about, once, by the coverage read
-    // on the same event. Clear stale rows rather than claiming they belong to
-    // the current viewport.
+    // on the same event. Clear stale rows and the selection rather than
+    // claiming either belongs to the current viewport.
     if (viewport === null) {
       panelControls.list.markUnavailable();
-      deps.layer.setSelectedSign?.(null);
+      deps.selection.clear();
       return;
     }
     panelControls.list.render(
-      filterSignsBySelection(
-        deps.spatialIndex.current().query(viewport),
-        currentSettings.categoryFilter,
-      ),
+      filterSignsBySelection(activeIndex.query(viewport), currentSettings.categoryFilter),
     );
   }
 
@@ -322,6 +313,7 @@ function buildControls(
   document: Document,
   tabLabel: HTMLElement,
   pane: HTMLElement,
+  selection: SignSelection,
   onVisibilityChange: (visible: boolean) => Promise<void>,
   onCategoryFilterChange: (categoryFilter: readonly SignFilterKey[] | null) => void,
   onRowActivate: (sign: TrafficSign) => void,
@@ -350,7 +342,7 @@ function buildControls(
 
   // Below the visibility block, above the permanent footer (which refresh()
   // appends last): the list is the tab's main content, not a control of its own.
-  const list = openSignList(document, content, onRowActivate);
+  const list = openSignList(document, content, selection, onRowActivate);
   pane.append(content);
 
   toggle.addEventListener("change", () => {

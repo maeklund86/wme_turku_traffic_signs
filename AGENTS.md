@@ -30,6 +30,16 @@ WME SDK + OL2 rendering facts the Visual Overlay depends on — graphic anchorin
 
 No CI. Checks live in `scripts/pre-commit` (typecheck + vitest + build), wired via **local** git config — run once per clone: `git config core.hooksPath scripts`. Not wired? Run `npm run check` before committing.
 
+### Output files
+
+When a task produces a file for the user to open, print a host-accessible path as well as the WSL path.
+
+In WSL2, derive it with `wslpath -w <path>` and give the Windows form, for example `\\wsl.localhost\Ubuntu\home\<user>\...`. On native Linux, the normal path is enough.
+
+### Agent scratch
+
+Put temporary files, working plans, and working specs in `.agents/`. Git ignores that directory except for the tracked `.agents/skills/`.
+
 <!--VITE PLUS START-->
 
 # Using Vite+, the Unified Toolchain for the Web
@@ -61,3 +71,37 @@ release. Add a tool name to select part of the graph. For example, run
 - [ ] If setup, runtime, or package-manager behavior looks wrong, run `vp env doctor` and include its output when asking for help.
 
 <!--VITE PLUS END-->
+
+# Technical Writing
+
+Apply these rules to documentation, UI text, error messages, and instructions for people.
+
+## Writing rules
+
+- Use the project's required language. When writing English, use clear, simple English.
+- Prefer short, clear sentences with one main idea. Keep words that readers need for accuracy.
+- In procedures, give direct commands. Put each separate instruction in its own step. Combine actions only when they happen at the same time.
+- In descriptions, present information in a clear order. Keep related information together, and make each paragraph's topic clear.
+- Use project-approved technical terms consistently. Explain unfamiliar terms.
+- Make references clear. Name the thing again if a pronoun could have more than one meaning.
+- When simplifying or replacing a word, preserve the original meaning. Rewrite the sentence if a direct replacement changes its meaning.
+- Use gender-neutral wording when it preserves meaning. For safety text, follow the applicable safety standard and project terminology. State the action or condition and the known risk.
+
+## Scope
+
+These instructions adapt selected ASD-STE100 principles for general project writing. They do not establish formal ASD-STE100 compliance. ASD-STE100 defines a controlled language with writing rules and a controlled dictionary, and it is not intended to stand alone. For work that requires compliance, follow the complete applicable issue and other applicable specifications.
+
+## Basis in ASD-STE100 Issue 9
+
+- Short, clear sentences and keeping necessary words: Part 1, Section 4, Rules 4.1–4.2, pp. 1-4-1–1-4-3.
+- Procedures and descriptions: Part 1, Section 5, Rules 5.2–5.3, pp. 1-5-2–1-5-3; Section 6, Rules 6.1 and 6.4–6.6, pp. 1-6-1 and 1-6-5–1-6-7.
+- Consistent terms and meaning: Part 1, Section 1, Rules 1.1–1.3 and 1.8–1.11, pp. 1-1-2–1-1-4 and 1-1-11–1-1-12; Section 2, Rule 2.2, p. 1-2-2; Section 9, Rules 9.1 and 9.4, pp. 1-9-1–1-9-4 and 1-9-8. Rule 1.10 limits its restriction on slang, regional terms, and jargon to technical nouns.
+- Clear references and inclusive wording: Part 1, Section 9, General Recommendations 3, 4, and 7, pp. 1-9-11 and 1-9-13.
+- Safety text: Part 1, Section 7, Rules 7.1–7.3, pp. 1-7-1–1-7-4.
+
+The standard defines STE as a controlled language with writing rules and a controlled dictionary. It says STE is not intended to stand alone. See the General Introduction, pp. i–ii, and “Guide to the writing rules,” p. vii. Issue 9 is dated January 15, 2025. Check the official About STE page for the current issue.
+
+## Official source
+
+- ASD-STE100, *Simplified Technical English*, Issue 9, January 15, 2025: [official PDF](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf).
+- [Official About STE page](https://www.asd-ste100.org/about_STE.html), which identifies Issue 9 as the current issue.

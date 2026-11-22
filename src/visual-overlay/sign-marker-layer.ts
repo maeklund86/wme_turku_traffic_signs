@@ -5,11 +5,12 @@ import type {
   SdkFeatureStyleRule,
 } from "wme-sdk-typings";
 
+import { SIGN_LAYER_NAME } from "../constants";
 import type { BoundingBox } from "../data/bounding-box";
 import { buildSpatialIndex, type SpatialIndex } from "../data/spatial-index";
 import { sameTrafficSign, type TrafficSign } from "../data/traffic-sign";
 import { filterSignsBySelection, type SignFilterKey } from "../data/sign-categories";
-import { SIGN_LAYER_NAME } from "../constants";
+import type { SignSelection } from "../sign-selection";
 import {
   MARKER_KIND_PROPERTY,
   MARKER_ICON_Y_OFFSET_PROPERTY,
@@ -50,8 +51,8 @@ export interface SignMarkerLayerDeps {
    * `Events` remains synchronous in async mode, so keep the SDK's generic type.
    */
   sdk: { Map: SignMarkerLayerMap; Events: AsyncWmeSDK["Events"] };
-  /** Reports map selection without touching WME's native editing selection. */
-  onSelectionChange?: (sign: TrafficSign | null) => void;
+  /** The one selected Traffic Sign, shared with the Sign Panel. */
+  selection: SignSelection;
 }
 
 /**
@@ -65,10 +66,8 @@ export interface SignMarkerLayer {
   setVisible(visible: boolean): Promise<void>;
   /** Changes which category-tree branches render, without reloading the dataset. */
   setCategoryFilter(categoryFilter: readonly SignFilterKey[] | null): Promise<void>;
-  /** Keeps marker visibility checks aligned with Sign Panel row selection. */
-  setSelectedSign(sign: TrafficSign | null): void;
   /** Replaces the viewport's filtered markers, preserving each source coordinate. */
-  render(signs: readonly TrafficSign[]): Promise<void>;
+  render(index: SpatialIndex): Promise<void>;
 }
 
 export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer {
@@ -82,15 +81,13 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
   let renderQueue: Promise<void> = Promise.resolve();
   let renderRequest = 0;
   let hasRendered = false;
-  let renderedSigns: readonly TrafficSign[] = [];
   let renderedIndex: SpatialIndex = buildSpatialIndex([]);
   let renderedPositions = new Map<TrafficSign, number>();
   let categoryFilter: readonly SignFilterKey[] | null = null;
   let mapClickTimer: ReturnType<typeof setTimeout> | null = null;
   let markerClickAwaitingMapEvent = false;
-  let selectedSign: TrafficSign | null = null;
 
-  return { setVisible, setCategoryFilter, setSelectedSign, render };
+  return { setVisible, setCategoryFilter, render };
 
   async function ensureLayer(): Promise<void> {
     if (layerCreated) return;
@@ -138,14 +135,9 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     if (hasRendered) await renderVisibleSigns();
   }
 
-  function setSelectedSign(sign: TrafficSign | null): void {
-    selectedSign = sign;
-  }
-
-  async function render(signs: readonly TrafficSign[]): Promise<void> {
-    renderedSigns = signs;
-    renderedIndex = buildSpatialIndex(signs);
-    renderedPositions = new Map(signs.map((sign, position) => [sign, position]));
+  async function render(index: SpatialIndex): Promise<void> {
+    renderedIndex = index;
+    renderedPositions = new Map(index.signs.map((sign, position) => [sign, position]));
     hasRendered = true;
     await renderVisibleSigns();
   }
@@ -180,16 +172,16 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     const viewportRect = viewport.getBoundingClientRect();
     const queryBounds =
       extent === null ? null : expandBounds(extent, viewportRect.width, viewportRect.height);
-    const signsInView = queryBounds === null ? renderedSigns : renderedIndex.query(queryBounds);
+    const signsInView =
+      queryBounds === null ? renderedIndex.signs : renderedIndex.query(queryBounds);
     const visibleSigns = filterSignsBySelection(signsInView, categoryFilter);
+    const selectedSign = deps.selection.current().sign;
     if (selectedSign !== null) {
-      const visibleSelection = visibleSigns.find((sign) => sameTrafficSign(sign, selectedSign!));
+      const visibleSelection = visibleSigns.find((sign) => sameTrafficSign(sign, selectedSign));
       if (visibleSelection === undefined) {
-        selectedSign = null;
-        deps.onSelectionChange?.(null);
+        deps.selection.clear();
       } else if (selectedSign !== visibleSelection) {
-        selectedSign = visibleSelection;
-        deps.onSelectionChange?.(visibleSelection);
+        deps.selection.reconcile(visibleSelection);
       }
     }
     const placements: readonly MarkerPlacement[] =
@@ -246,12 +238,11 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
       // which task delivers it rather than clearing this marker selection.
       markerClickAwaitingMapEvent = true;
     }
-    const clickedSign = renderedSigns.find(
+    const clickedSign = renderedIndex.signs.find(
       (sign, position) => signFeatureId(sign, position) === String(payload.featureId),
     );
     if (clickedSign !== undefined) {
-      selectedSign = clickedSign;
-      deps.onSelectionChange?.(clickedSign);
+      deps.selection.select(clickedSign, "marker");
     }
   }
 
@@ -263,8 +254,7 @@ export function openSignMarkerLayer(deps: SignMarkerLayerDeps): SignMarkerLayer 
     if (mapClickTimer !== null) clearTimeout(mapClickTimer);
     mapClickTimer = setTimeout(() => {
       mapClickTimer = null;
-      selectedSign = null;
-      deps.onSelectionChange?.(null);
+      deps.selection.clear();
     }, 0);
   }
 }

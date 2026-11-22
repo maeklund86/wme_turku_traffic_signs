@@ -166,3 +166,104 @@ describe("Sign dataset service (Client Cache policy)", () => {
     expect(store.write).not.toHaveBeenCalled();
   });
 });
+
+describe("Sign dataset subscribers", () => {
+  it("publishes the active dataset on load", async () => {
+    silenceConsole();
+    const store = createFakeDatasetStore({ record: TURKU_RECORD });
+    const service = await openSignDatasetSource({
+      store,
+      fetchDataset: async () => TURKU_RECORD,
+      now: () => NOW,
+    });
+    const listener = vi.fn();
+    service.subscribe(listener);
+
+    await service.load();
+
+    expect(listener).toHaveBeenCalledOnce();
+    const published = listener.mock.calls[0]![0];
+    expect(published.timeStamp).toBe(NEW_TIME_STAMP);
+    expect(published.index.signs).toHaveLength(2);
+    expect(service.current()).toBe(published);
+  });
+
+  it("publishes the background revalidation swap", async () => {
+    silenceConsole();
+    const staleRecord = record(OLD_TIME_STAMP, NOW - CACHE_TTL_MS - 1000, [
+      sign("cached", 22.1, 60.4),
+    ]);
+    const store = createFakeDatasetStore({ record: staleRecord });
+    const pending = deferred<SignDatasetRecord>();
+    const service = await openSignDatasetSource({
+      store,
+      fetchDataset: () => pending.promise,
+      now: () => NOW,
+    });
+    const listener = vi.fn();
+    service.subscribe(listener);
+
+    await service.load();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0]![0].timeStamp).toBe(OLD_TIME_STAMP);
+
+    pending.resolve(TURKU_RECORD);
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(2));
+    expect(listener.mock.calls[1]![0].timeStamp).toBe(NEW_TIME_STAMP);
+  });
+
+  it("publishes nothing when the first ingest fails", async () => {
+    silenceConsole();
+    const store = createFakeDatasetStore({ record: null });
+    const service = await openSignDatasetSource({
+      store,
+      fetchDataset: async () => {
+        throw new Error("page 2 failed");
+      },
+      now: () => NOW,
+    });
+    const listener = vi.fn();
+    service.subscribe(listener);
+
+    await service.load();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("publishes once when concurrent loads coalesce", async () => {
+    silenceConsole();
+    const store = createFakeDatasetStore({ record: null });
+    const pending = deferred<SignDatasetRecord>();
+    const service = await openSignDatasetSource({
+      store,
+      fetchDataset: () => pending.promise,
+      now: () => NOW,
+    });
+    const listener = vi.fn();
+    service.subscribe(listener);
+
+    const first = service.load();
+    const second = service.load();
+    pending.resolve(TURKU_RECORD);
+    await Promise.all([first, second]);
+
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("stops publishing after unsubscribe", async () => {
+    silenceConsole();
+    const store = createFakeDatasetStore({ record: TURKU_RECORD });
+    const service = await openSignDatasetSource({
+      store,
+      fetchDataset: async () => TURKU_RECORD,
+      now: () => NOW,
+    });
+    const listener = vi.fn();
+    const unsubscribe = service.subscribe(listener);
+    unsubscribe();
+
+    await service.load();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
