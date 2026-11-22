@@ -20,6 +20,10 @@ _Avoid_: Sign bot, auto-editor, patcher
 The script's own tab in the WME sidebar, holding the visibility control, sign category filters, the viewport-driven sign list, sign detail and attribution.
 _Avoid_: Overlay, side panel, sign bot
 
+**Sign Selection**:
+The one Traffic Sign currently selected for reference, together with whether its inline details are open, shared by the Visual Overlay and the Sign Panel.
+_Avoid_: Current sign, highlight, focus
+
 **Sign Category**:
 A grouping of traffic signs sharing a common regulatory function (e.g., speed limits, priority, parking).
 _Avoid_: Tag, folder, bucket

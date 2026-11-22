@@ -26,6 +26,11 @@ export interface SignDatasetSource {
   load(): Promise<SignDataset>;
   /** The active dataset snapshot; empty until the first load resolves. */
   current(): SignDataset;
+  /**
+   * Publishes every active-dataset swap, including the background revalidation
+   * that resolves after load(). Returns an unsubscribe function.
+   */
+  subscribe(listener: (dataset: SignDataset) => void): () => void;
 }
 
 export interface SignDatasetServiceDeps {
@@ -54,11 +59,32 @@ export async function openSignDatasetSource(
   let persisting = persistingAtStart;
   let currentDataset: SignDataset = EMPTY_DATASET;
   let loading: Promise<SignDataset> | null = null;
+  const listeners = new Set<(dataset: SignDataset) => void>();
 
   return {
     load,
     current: () => currentDataset,
+    subscribe,
   };
+
+  function subscribe(listener: (dataset: SignDataset) => void): () => void {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }
+
+  /** Makes the dataset active and tells every view that follows it. */
+  function publish(dataset: SignDataset): void {
+    currentDataset = dataset;
+    for (const listener of listeners) {
+      try {
+        listener(dataset);
+      } catch (error) {
+        console.error(`${LOG_PREFIX} Dataset subscriber failed.`, error);
+      }
+    }
+  }
 
   /** Coalesces concurrent loads; a settled failed attempt can be retried by a later load. */
   function load(): Promise<SignDataset> {
@@ -71,7 +97,7 @@ export async function openSignDatasetSource(
   async function loadFromCacheOrIngest(): Promise<SignDataset> {
     const cached = await readCache();
     if (cached !== null) {
-      currentDataset = datasetOf(cached);
+      publish(datasetOf(cached));
       if (now() - cached.storedAt > CACHE_TTL_MS) {
         revalidateInBackground();
       }
@@ -119,10 +145,10 @@ export async function openSignDatasetSource(
     );
   }
 
-  /** Persists the dataset, then swaps it into memory for rendering. */
+  /** Persists the dataset, then publishes it for rendering. */
   async function ingest(record: SignDatasetRecord): Promise<SignDataset> {
     await persist(record);
-    currentDataset = datasetOf(record);
+    publish(datasetOf(record));
     return currentDataset;
   }
 

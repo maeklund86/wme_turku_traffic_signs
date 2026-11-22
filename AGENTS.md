@@ -30,6 +30,12 @@ WME SDK + OL2 rendering facts the Visual Overlay depends on — graphic anchorin
 
 No CI. Checks live in `scripts/pre-commit` (typecheck + vitest + build), wired via **local** git config — run once per clone: `git config core.hooksPath scripts`. Not wired? Run `npm run check` before committing.
 
+### Output files
+
+When a task produces a file for the user to open, print a host-accessible path as well as the WSL path.
+
+In WSL2, derive it with `wslpath -w <path>` and give the Windows form, for example `\\wsl.localhost\Ubuntu\home\<user>\...`. On native Linux, the normal path is enough.
+
 <!--VITE PLUS START-->
 
 # Using Vite+, the Unified Toolchain for the Web

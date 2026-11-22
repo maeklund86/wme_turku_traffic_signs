@@ -15,6 +15,7 @@ import {
 } from "../src/constants";
 import { buildSpatialIndex } from "../src/data/spatial-index";
 import type { TrafficSign } from "../src/data/traffic-sign";
+import { openSignSelection } from "../src/sign-selection";
 import { officialSignIconUrl } from "../src/visual-overlay/sign-icon";
 import { SIGN_PLATE_HEIGHT, SIGN_PLATE_WIDTH } from "../src/visual-overlay/marker-graphics";
 import { SettingsRepository } from "../src/settings/settings-repository";
@@ -40,7 +41,7 @@ const INSIDE_TURKU = [22.2, 60.4, 22.3, 60.5];
 /** A viewport west of Turku that misses the coverage extent entirely. */
 const OUTSIDE_TURKU = [21.5, 60.0, 22.0, 60.2];
 
-/** Stands in for the Visual Overlay; the panel only ever drives its visibility. */
+/** Stands in for the Visual Overlay; the panel drives visibility and the filter. */
 function createFakeLayer() {
   const setVisible = vi.fn(async (_visible: boolean): Promise<void> => undefined);
   const setCategoryFilter = vi.fn(
@@ -61,24 +62,18 @@ async function openTab(
   fake.map.getMapExtent.mockResolvedValue(options.covered === false ? OUTSIDE_TURKU : INSIDE_TURKU);
   const repository = options.repository ?? new SettingsRepository(createMemoryStore());
   const layer = createFakeLayer();
-  let activeSigns = options.signs ?? [];
-  return {
-    fake,
-    registerScriptTab: fake.registerScriptTab,
-    repository,
-    layer,
-    /** Swaps the active dataset in, as an ingest does after the panel opened. */
-    setActiveSigns: (signs: readonly TrafficSign[]) => {
-      activeSigns = signs;
-    },
-    tab: await openSignPanelTab({
-      sdk: fake.sdk,
-      document: globalThis.document,
-      settingsRepository: repository,
-      layer: layer.layer,
-      spatialIndex: { current: () => buildSpatialIndex(activeSigns) },
-    }),
-  };
+  const selection = openSignSelection();
+  const tab = await openSignPanelTab({
+    sdk: fake.sdk,
+    document: globalThis.document,
+    settingsRepository: repository,
+    layer: layer.layer,
+    selection,
+  });
+  // The source can publish before the first ready; hand the index in first so
+  // the first refresh renders it. Production publishes after refresh().
+  await tab.applySignIndex(buildSpatialIndex(options.signs ?? []));
+  return { fake, registerScriptTab: fake.registerScriptTab, repository, layer, selection, tab };
 }
 
 describe("Sign Panel tab shell", () => {
@@ -91,7 +86,7 @@ describe("Sign Panel tab shell", () => {
       document: globalThis.document,
       settingsRepository: new SettingsRepository(createMemoryStore()),
       layer: layer.layer,
-      spatialIndex: { current: () => buildSpatialIndex([]) },
+      selection: openSignSelection(),
     });
 
     expect(fake.registerScriptTab).not.toHaveBeenCalled();
@@ -158,11 +153,14 @@ describe("Sign Panel tab shell", () => {
   });
 
   it("re-creates the controls and the footer when WME replaces the tab pane", async () => {
-    const { registerScriptTab, tab } = await openTab();
+    const target = sign("nearby", 22.25, 60.45);
+    const { registerScriptTab, selection, tab } = await openTab({ signs: [target] });
 
     await tab.refresh();
     // WME re-renders the pane: the memoized element is detached from the document.
-    (await paneOf(registerScriptTab)).remove();
+    const oldPane = await paneOf(registerScriptTab);
+    const [oldRow] = rowsOf(oldPane);
+    oldPane.remove();
     await tab.refresh();
 
     expect(registerScriptTab).toHaveBeenCalledTimes(2);
@@ -172,6 +170,24 @@ describe("Sign Panel tab shell", () => {
     expect(freshPane.lastElementChild?.textContent).toBe(
       "Traffic sign data © City of Turku, CC BY 4.0",
     );
+
+    // The replaced pane's list no longer follows selection; the fresh one does.
+    selection.select(target, "marker");
+    expect(rowsOf(freshPane)[0]!.getAttribute("aria-pressed")).toBe("true");
+    expect(oldRow!.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("switches to the script tab when the Visual Overlay selects a Traffic Sign", async () => {
+    const target = sign("nearby", 22.25, 60.45);
+    const { fake, registerScriptTab, selection, tab } = await openTab({ signs: [target] });
+
+    await tab.refresh();
+    const { tabLabel } = await registerScriptTab.mock.results[0]!.value;
+    expect(fake.isScriptTabActive(tabLabel)).toBe(false);
+
+    selection.select(target, "marker");
+
+    expect(fake.isScriptTabActive(tabLabel)).toBe(true);
   });
 });
 
@@ -416,14 +432,14 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     expect(rowsOf(pane)).toHaveLength(1);
   });
 
-  it("re-reads the active dataset on a map move, as an ingest swap leaves it", async () => {
-    const { fake, registerScriptTab, setActiveSigns, tab } = await openTab({ signs: [NEARBY] });
+  it("re-reads the applied dataset on a map move", async () => {
+    const { fake, registerScriptTab, tab } = await openTab({ signs: [NEARBY] });
 
     await tab.refresh();
     const pane = await paneOf(registerScriptTab);
     expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
 
-    setActiveSigns([NEARBY, OTHER]);
+    await tab.applySignIndex(buildSpatialIndex([NEARBY, OTHER]));
     fake.emitMapMoveEnd();
 
     await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("2 signs in view"));
@@ -431,15 +447,14 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
   });
 
   it("refreshes the list after a dataset swap without a ready or a map move", async () => {
-    const { registerScriptTab, setActiveSigns, tab } = await openTab();
+    const { registerScriptTab, tab } = await openTab();
 
     await tab.refresh();
     const pane = await paneOf(registerScriptTab);
     expect(listHeaderOf(pane).textContent).toBe("0 signs in view");
 
     // The dataset resolves after the ready rendered the list from an empty index.
-    setActiveSigns([NEARBY, OTHER]);
-    await tab.refreshSignList();
+    await tab.applySignIndex(buildSpatialIndex([NEARBY, OTHER]));
 
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
     expect(rowsOf(pane)).toHaveLength(2);
@@ -627,13 +642,13 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
 
   it("selecting a sign from the map opens its extra note", async () => {
     const target = sign("nearby", 22.25, 60.45, { notes: "Additional sign details" });
-    const { registerScriptTab, tab } = await openTab({ signs: [target] });
+    const { registerScriptTab, selection, tab } = await openTab({ signs: [target] });
 
     await tab.refresh();
 
     const [row] = rowsOf(await paneOf(registerScriptTab));
     const fullNotes = fullNotesOf(row!);
-    tab.selectSign(target);
+    selection.select(target, "marker");
 
     expect(row!.getAttribute("aria-pressed")).toBe("true");
     expect(row!.getAttribute("aria-expanded")).toBe("true");
@@ -698,17 +713,20 @@ describe("Viewport-driven sign list (AC-20, AC-21, AC-24)", () => {
     expect(row!.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("clears stale rows when viewport bounds are unusable", async () => {
+  it("clears stale rows and the selection when viewport bounds are unusable", async () => {
     silenceConsole();
-    const { fake, registerScriptTab, tab } = await openTab({ signs: [NEARBY, OTHER] });
+    const { fake, registerScriptTab, selection, tab } = await openTab({ signs: [NEARBY, OTHER] });
 
     await tab.refresh();
     const pane = await paneOf(registerScriptTab);
     expect(listHeaderOf(pane).textContent).toBe("2 signs in view");
+    selection.select(NEARBY, "marker");
+    expect(selection.current().sign).toBe(NEARBY);
 
     fake.map.getMapExtent.mockResolvedValue([22.2]);
     fake.emitMapMoveEnd();
 
+    await vi.waitFor(() => expect(selection.current().sign).toBeNull());
     await vi.waitFor(() => expect(listHeaderOf(pane).textContent).toBe("Sign count unavailable"));
     expect(listHeaderOf(pane).textContent).toBe("Sign count unavailable");
     expect(rowsOf(pane)).toHaveLength(0);

@@ -61,6 +61,9 @@ function createFakeDataDeps(options: { record?: SignDatasetRecord | null } = {})
   return { datasetStore, fetchDataset };
 }
 
+const addedFeatures = (fake: ReturnType<typeof createFakeWmeSdk>) =>
+  fake.map.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature);
+
 /** Counts persisted-state loads to observe the re-apply-after-every-wme-ready contract. */
 function countingStore(): { store: KeyValueStore; settingsLoads: () => number } {
   const inner = createMemoryStore();
@@ -272,6 +275,82 @@ describe("userscript bootstrap", () => {
     await vi.waitFor(() => expect(dataDeps.fetchDataset).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(dataDeps.datasetStore.write).toHaveBeenCalledTimes(1));
   });
+
+  it("redraws markers and the Sign Panel after a background revalidation swap (AC-6)", async () => {
+    silenceConsole();
+    const fake = createFakeWmeSdk();
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
+    const staleRecord = record("2026-10-01T00:00:00.000Z", NOW - CACHE_TTL_MS - 1000, [
+      sign("cached", 22.1, 60.4, { signCode: "C38" }),
+    ]);
+    const freshRecord = record("2026-11-11T00:00:00.000Z", NOW, [
+      sign("fresh", 22.2, 60.4, { signCode: "B1" }),
+    ]);
+    const datasetStore = createFakeDatasetStore({ record: staleRecord });
+    let resolveFetch!: (value: SignDatasetRecord) => void;
+    const fetchDataset = vi.fn(
+      () =>
+        new Promise<SignDatasetRecord>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage: createMemoryStore(),
+      signData: { datasetStore, fetchDataset },
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+    await vi.waitFor(() =>
+      expect(addedFeatures(fake).map((feature) => feature.id)).toEqual(["cached"]),
+    );
+    const pane = await paneOf(fake.registerScriptTab);
+    expect(
+      rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
+    ).toEqual(["C38"]);
+
+    resolveFetch(freshRecord);
+    await vi.waitFor(() =>
+      expect(addedFeatures(fake).map((feature) => feature.id)).toEqual(["cached", "fresh"]),
+    );
+    await vi.waitFor(() =>
+      expect(
+        rowsOf(pane).map((row) => row.querySelector(`.${SIGN_ROW_CODE_CLASS}`)?.textContent),
+      ).toEqual(["B1"]),
+    );
+    expect(datasetStore.write).toHaveBeenCalledWith(freshRecord);
+  });
+
+  it("applies the Sign Panel dataset even when the marker layer fails", async () => {
+    silenceConsole();
+    const fake = createFakeWmeSdk();
+    fake.map.addFeatureToLayer.mockRejectedValue(new Error("feature unavailable"));
+    const { pageWindow, resolveSdkInitialized } = createFakePageWindow(
+      fake.sdk as unknown as WmeSDK,
+    );
+    const started = bootstrap({
+      pageWindow,
+      document: globalThis.document,
+      storage: createMemoryStore(),
+      signData: createFakeDataDeps({ record: TURKU_RECORD }),
+    });
+
+    resolveSdkInitialized();
+    await started;
+    fake.emitWmeReady();
+
+    let pane!: HTMLElement;
+    await vi.waitFor(async () => {
+      pane = await paneOf(fake.registerScriptTab);
+      expect(listHeaderOf(pane).textContent).toBe("1 sign in view");
+    });
+    expect(rowsOf(pane)).toHaveLength(1);
+  });
 });
 
 describe("visual overlay wiring", () => {
@@ -298,9 +377,6 @@ describe("visual overlay wiring", () => {
       }),
     };
   }
-
-  const addedFeatures = (fake: ReturnType<typeof createFakeWmeSdk>) =>
-    fake.map.addFeatureToLayer.mock.calls.map(([{ feature }]) => feature);
 
   async function readyWithSigns(signs: readonly TrafficSign[]) {
     const { fake, resolveSdkInitialized, started } = bootWithSigns(signs);

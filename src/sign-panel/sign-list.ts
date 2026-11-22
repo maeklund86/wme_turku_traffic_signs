@@ -13,6 +13,7 @@ import {
 } from "../constants";
 import { sameTrafficSign, type TrafficSign } from "../data/traffic-sign";
 import { categoryForCode } from "../data/sign-categories";
+import type { SignSelection } from "../sign-selection";
 import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
 
 /**
@@ -20,14 +21,17 @@ import { resolveSignMarkerGraphic } from "../visual-overlay/marker-style";
  * header over one self-contained row per sign inside the viewport. It only ever
  * renders the signs it is handed — the viewport query against the in-memory
  * spatial index stays in the tab, which is where the viewport comes from.
+ *
+ * Selection belongs to the shared Sign Selection module: the list reads it to
+ * mark and expand rows, and reports row clicks back to it.
  */
 export interface SignList {
   /** Replaces the rows with exactly these signs, in the order given. */
   render(signs: readonly TrafficSign[]): void;
-  /** Highlights one row, or clears the current selection. */
-  select(sign: TrafficSign | null): void;
   /** Clears stale rows and removes the count claim when viewport bounds fail. */
   markUnavailable(): void;
+  /** Stops following the shared selection after WME replaces the pane. */
+  close(): void;
 }
 
 interface SignRow {
@@ -41,6 +45,7 @@ interface SignRow {
 export function openSignList(
   document: Document,
   pane: HTMLElement,
+  selection: SignSelection,
   onRowActivate: (sign: TrafficSign) => void,
 ): SignList {
   const header = document.createElement("div");
@@ -53,49 +58,31 @@ export function openSignList(
   let signs: readonly TrafficSign[] = [];
   let rows: SignRow[] = [];
   let temporaryRow: SignRow | null = null;
-  let selectedSign: TrafficSign | null = null;
-  let expandedSign: TrafficSign | null = null;
-  return { render, select, markUnavailable };
+
+  const stopFollowingSelection = selection.subscribe((change) => {
+    syncTemporaryRow();
+    updateRows();
+    renderRows();
+    // The Visual Overlay can select a marker just beyond the strict list
+    // bounds. Reveal its temporary row, as list selection always has.
+    if (change.source === "marker" && change.sign !== null) {
+      const row = rowFor(change.sign);
+      if (row?.item.isConnected) row.item.scrollIntoView?.();
+    }
+  });
+
+  return { render, markUnavailable, close: stopFollowingSelection };
 
   function render(nextSigns: readonly TrafficSign[]): void {
     // Whole-list replacement, not patching: the viewport decides membership,
     // so every move recalculates membership. Rows remain in fetch order, which
     // keeps the list stable across moves.
-    if (selectedSign !== null) {
-      const listedSign = nextSigns.find((sign) => sameTrafficSign(sign, selectedSign!));
-      if (listedSign !== undefined) {
-        if (selectedSign !== listedSign && expandedSign === selectedSign) {
-          expandedSign = listedSign;
-        }
-        selectedSign = listedSign;
-        temporaryRow = null;
-      } else if (temporaryRow?.sign !== selectedSign) {
-        // The Visual Overlay can render a marker just beyond strict list
-        // bounds. Keep that selected Traffic Sign as a temporary row; the
-        // marker layer clears it when it is no longer in its padded query.
-        temporaryRow = buildRow(document, selectedSign, activate);
-      }
-    }
     signs = nextSigns;
     header.textContent = countText(nextSigns.length);
     rows = nextSigns.map((sign) => buildRow(document, sign, activate));
+    syncTemporaryRow();
     updateRows();
     renderRows();
-  }
-
-  function select(sign: TrafficSign | null): void {
-    selectedSign =
-      sign === null ? null : (signs.find((listed) => sameTrafficSign(listed, sign)) ?? sign);
-    expandedSign = selectedSign?.notes === null || selectedSign === null ? null : selectedSign;
-    temporaryRow =
-      selectedSign !== null && !signs.some((listed) => sameTrafficSign(listed, selectedSign!))
-        ? buildRow(document, selectedSign, activate)
-        : null;
-    updateRows();
-    renderRows();
-    if (selectedSign !== null) {
-      rowFor(selectedSign)?.item.scrollIntoView?.();
-    }
   }
 
   function markUnavailable(): void {
@@ -106,33 +93,39 @@ export function openSignList(
     signs = [];
     rows = [];
     temporaryRow = null;
-    selectedSign = null;
-    expandedSign = null;
   }
 
   function activate(sign: TrafficSign): void {
-    const wasSelected = selectedSign !== null && sameTrafficSign(selectedSign, sign);
-    selectedSign = signs.find((listed) => sameTrafficSign(listed, sign)) ?? sign;
-    expandedSign =
-      selectedSign.notes === null
-        ? null
-        : wasSelected && expandedSign !== null && sameTrafficSign(expandedSign, selectedSign)
-          ? null
-          : selectedSign;
-    temporaryRow = signs.some((listed) => sameTrafficSign(listed, selectedSign!))
-      ? null
-      : temporaryRow?.sign === selectedSign
-        ? temporaryRow
-        : buildRow(document, selectedSign, activate);
-    updateRows();
-    renderRows();
-    onRowActivate(selectedSign);
+    const currentSign = selection.current().sign;
+    if (currentSign !== null && sameTrafficSign(currentSign, sign)) {
+      selection.toggleDetails();
+    } else {
+      selection.select(sign, "panel");
+    }
+    onRowActivate(sign);
+  }
+
+  /**
+   * Keeps the selected Traffic Sign visible when the strict viewport excludes
+   * it but the Visual Overlay's padded query still draws its marker.
+   */
+  function syncTemporaryRow(): void {
+    const selectedSign = selection.current().sign;
+    if (selectedSign === null || signs.some((sign) => sameTrafficSign(sign, selectedSign))) {
+      temporaryRow = null;
+      return;
+    }
+    if (temporaryRow === null || !sameTrafficSign(temporaryRow.sign, selectedSign)) {
+      temporaryRow = buildRow(document, selectedSign, activate);
+    }
   }
 
   function updateRows(): void {
+    const { sign: selectedSign, detailsOpen } = selection.current();
     for (const row of allRows()) {
-      row.setSelected(selectedSign !== null && sameTrafficSign(row.sign, selectedSign));
-      row.setNotesExpanded(expandedSign !== null && sameTrafficSign(row.sign, expandedSign));
+      const selected = selectedSign !== null && sameTrafficSign(row.sign, selectedSign);
+      row.setSelected(selected);
+      row.setNotesExpanded(selected && detailsOpen);
     }
   }
 
