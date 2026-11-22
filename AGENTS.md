@@ -36,6 +36,10 @@ When a task produces a file for the user to open, print a host-accessible path a
 
 In WSL2, derive it with `wslpath -w <path>` and give the Windows form, for example `\\wsl.localhost\Ubuntu\home\<user>\...`. On native Linux, the normal path is enough.
 
+### Agent scratch
+
+Put temporary files, working plans, and working specs in `.agents/`. Git ignores that directory except for the tracked `.agents/skills/`.
+
 <!--VITE PLUS START-->
 
 # Using Vite+, the Unified Toolchain for the Web

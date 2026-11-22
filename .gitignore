@@ -7,3 +7,8 @@ __pycache__/
 node_modules/
 dist/
 .vitest/
+
+# Agent scratch: temporary files, working plans, and working specs.
+# Keep repo skills trackable; everything else under .agents/ is scratch.
+.agents/*
+!.agents/skills/
